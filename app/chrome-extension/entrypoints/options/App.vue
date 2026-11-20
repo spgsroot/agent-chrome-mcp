@@ -308,7 +308,7 @@ const form = ref({
 
 const submitting = ref(false);
 const lastResult = ref('');
-const userScriptsAvailable = ref(!!getUserScriptApi());
+const userScriptsAvailable = ref(true);
 
 function formatTime(ts?: number) {
   if (!ts) return '';
@@ -391,7 +391,7 @@ async function reload() {
 
 async function apply(mode: 'auto' | 'once') {
   if (!form.value.script.trim()) return;
-  refreshUserScriptsAccess();
+  await refreshUserScriptsAccess();
   submitting.value = true;
   lastResult.value = '';
   try {
@@ -459,12 +459,13 @@ async function exportAll() {
   }
 }
 
-function refreshUserScriptsAccess() {
-  userScriptsAvailable.value = !!getUserScriptApi();
+async function refreshUserScriptsAccess() {
+  userScriptsAvailable.value = !!(await getUserScriptApi());
 }
 
 onMounted(async () => {
   window.addEventListener('focus', refreshUserScriptsAccess);
+  void refreshUserScriptsAccess();
   await loadEmergency();
   await loadProxy();
   await reload();

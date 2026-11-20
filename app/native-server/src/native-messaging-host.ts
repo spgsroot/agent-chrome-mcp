@@ -439,11 +439,12 @@ export class NativeMessagingHost {
         );
         return;
       }
+      const artifact = artifactId ? this.artifactStore.get(artifactId) : undefined;
       pending.resolve(
-        artifactId && this.artifactStore.get(artifactId)
+        artifact
           ? {
               ...result,
-              url: `http://127.0.0.1:${resolveServerPort()}/artifacts/${artifactId}?token=${encodeURIComponent(this.artifactStore.get(artifactId)!.downloadToken)}`,
+              url: `http://127.0.0.1:${this.associatedServer?.listeningPort ?? resolveServerPort()}/artifacts/${artifactId}?token=${encodeURIComponent(artifact.downloadToken)}`,
             }
           : (result ?? {}),
       );

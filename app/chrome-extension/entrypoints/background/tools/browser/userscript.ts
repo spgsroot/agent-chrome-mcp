@@ -70,6 +70,21 @@ async function saveAllRecords(records: Record<string, UserscriptRecord>): Promis
   await chrome.storage.local.set({ [STORAGE_KEYS.USERSCRIPTS]: records });
 }
 
+let recordWrites: Promise<unknown> = Promise.resolve();
+
+function changeRecords<T>(
+  update: (records: Record<string, UserscriptRecord>) => T | undefined,
+): Promise<T | undefined> {
+  const write = recordWrites.then(async () => {
+    const records = await loadAllRecords();
+    const changed = update(records);
+    if (changed !== undefined) await saveAllRecords(records);
+    return changed;
+  });
+  recordWrites = write.catch(() => undefined);
+  return write;
+}
+
 // Simple FNV-1a hash for deterministic IDs
 function fnv1a(str: string): string {
   let h = 0x811c9dc5;
@@ -221,7 +236,7 @@ async function executeUserScript(
   code: string,
   allFrames = record.allFrames,
 ): Promise<chrome.userScripts.InjectionResult[]> {
-  const api = getUserScriptApi();
+  const api = await getUserScriptApi();
   if (!api) throw new Error(USER_SCRIPT_ACCESS_HELP);
 
   // Use document IDs so navigation between the scope check and execution cannot
@@ -273,9 +288,11 @@ async function reinjectForTab(tabId: number, url?: string) {
     if (!rec.enabled || !rec.persist || rec.runAt !== 'document_idle') continue;
     if (!shouldApply(rec, url)) continue;
     try {
-      if (rec.sourceType === 'CSS' || getUserScriptApi()) await applyRecord(tabId, rec);
+      await applyRecord(tabId, rec);
     } catch (e) {
-      console.warn('Reinject failed for tab', tabId, rec.id, e);
+      if (!(e instanceof Error) || e.message !== USER_SCRIPT_ACCESS_HELP) {
+        console.warn('Reinject failed for tab', tabId, rec.id, e);
+      }
     }
   }
 }
@@ -301,7 +318,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
     if (!rec.enabled || !rec.persist || rec.runAt !== 'document_start') continue;
     if (!shouldApply(rec, tab.url)) continue;
     try {
-      if (rec.sourceType === 'CSS' || getUserScriptApi()) await applyRecord(details.tabId, rec);
+      await applyRecord(details.tabId, rec);
     } catch {
       // noop
     }
@@ -321,7 +338,7 @@ chrome.webNavigation.onDOMContentLoaded.addListener(async (details) => {
     if (!rec.enabled || !rec.persist || rec.runAt !== 'document_end') continue;
     if (!shouldApply(rec, tab.url)) continue;
     try {
-      if (rec.sourceType === 'CSS' || getUserScriptApi()) await applyRecord(details.tabId, rec);
+      await applyRecord(details.tabId, rec);
     } catch {
       // noop
     }
@@ -381,14 +398,17 @@ class UserscriptTool extends BaseBrowserToolExecutor {
     const name = args.name || deriveName(meta, undefined);
     const description = args.description || pick(meta['description']);
     const requestedMatches = args.matches || meta['match'] || meta['include'];
-    if (!requestedMatches?.length && active.url === chrome.runtime.getURL('options.html')) {
+    if (active.url === chrome.runtime.getURL('options.html')) {
       const tabs = await chrome.tabs.query({ windowId: active.windowId });
-      active = tabs
-        .filter((tab) => tab.id && /^https?:\/\//.test(tab.url ?? ''))
-        .sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))[0];
-      if (!active) return createErrorResponse('Open a web page or enter a Matches pattern.');
+      active =
+        tabs
+          .filter((tab) => tab.id && /^https?:\/\//.test(tab.url ?? ''))
+          .sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))[0] ?? null;
+      if (!active && !requestedMatches?.length) {
+        return createErrorResponse('Open a web page or enter a Matches pattern.');
+      }
     }
-    const currentUrl = active.url;
+    const currentUrl = active?.url;
     const matches = normalizeMatches(requestedMatches, currentUrl);
     const excludes = args.excludes || meta['exclude'] || [];
 
@@ -409,7 +429,7 @@ class UserscriptTool extends BaseBrowserToolExecutor {
         ? 'CSS'
         : 'JS';
 
-    if (sourceType !== 'CSS' && !getUserScriptApi()) {
+    if (sourceType !== 'CSS' && !(await getUserScriptApi())) {
       return createErrorResponse(USER_SCRIPT_ACCESS_HELP);
     }
 
@@ -437,10 +457,8 @@ class UserscriptTool extends BaseBrowserToolExecutor {
       sha256,
     };
 
-    const all = await loadAllRecords();
     if (record.persist) {
-      all[id] = record;
-      await saveAllRecords(all);
+      await changeRecords((records) => (records[id] = record));
     }
 
     if (emergency) {
@@ -463,13 +481,28 @@ class UserscriptTool extends BaseBrowserToolExecutor {
     let applied = false;
     let warning: string | undefined;
     try {
-      if (shouldApply(record, currentUrl)) applied = await applyRecord(active.id!, record);
+      if (active?.id && shouldApply(record, currentUrl)) {
+        applied = await applyRecord(active.id, record);
+      }
     } catch (error) {
       warning = error instanceof Error ? error.message : String(error);
       if (record.persist) {
-        record.lastError = warning;
-        await saveAllRecords(all);
+        await changeRecords((records) => {
+          const current = records[id];
+          if (
+            !current?.enabled ||
+            current.createdAt !== record.createdAt ||
+            current.updatedAt !== record.updatedAt
+          ) {
+            return undefined;
+          }
+          current.lastError = warning;
+          return current;
+        });
       }
+    }
+    if (!applied && !record.persist) {
+      return createErrorResponse(warning ?? 'The userscript does not match the active web tab.');
     }
 
     const result = {
@@ -552,46 +585,50 @@ class UserscriptTool extends BaseBrowserToolExecutor {
   private async enable(args: any, enabled: boolean): Promise<ToolResult> {
     const { id } = args || {};
     if (!id) return createErrorResponse('id is required');
-    const all = await loadAllRecords();
-    const rec = all[id];
-    if (!rec) return createErrorResponse('userscript not found');
-    rec.enabled = enabled;
-    rec.updatedAt = now();
-    await saveAllRecords(all);
+    const changed = await changeRecords((records) => {
+      const record = records[id];
+      if (!record) return undefined;
+      record.enabled = enabled;
+      record.updatedAt = now();
+      return record;
+    });
+    if (!changed) return createErrorResponse('userscript not found');
     return { content: [{ type: 'text', text: JSON.stringify({ ok: true }) }], isError: false };
   }
 
   private async update(args: UpdateArgs): Promise<ToolResult> {
     const { id, ...rest } = args;
     if (!id) return createErrorResponse('id is required');
-    const all = await loadAllRecords();
-    const rec = all[id];
-    if (!rec) return createErrorResponse('userscript not found');
-
-    if (rest.name !== undefined) rec.name = rest.name;
-    if (rest.description !== undefined) rec.description = rest.description;
-    if (rest.matches) rec.matches = rest.matches;
-    if (rest.excludes) rec.excludes = rest.excludes;
-    if (rest.runAt && rest.runAt !== 'auto') rec.runAt = rest.runAt;
-    if (rest.world && rest.world !== 'auto') rec.world = rest.world as any;
-    if (typeof rest.allFrames === 'boolean') rec.allFrames = rest.allFrames;
-    if (typeof rest.persist === 'boolean') rec.persist = rest.persist;
-    if (typeof rest.dnrFallback === 'boolean') rec.dnrFallback = rest.dnrFallback;
-    if (rest.tags) rec.tags = rest.tags;
-    if (typeof rest.script === 'string') rec.script = rest.script;
-    rec.updatedAt = now();
-    await saveAllRecords(all);
+    const changed = await changeRecords((records) => {
+      const rec = records[id];
+      if (!rec) return undefined;
+      if (rest.name !== undefined) rec.name = rest.name;
+      if (rest.description !== undefined) rec.description = rest.description;
+      if (rest.matches) rec.matches = rest.matches;
+      if (rest.excludes) rec.excludes = rest.excludes;
+      if (rest.runAt && rest.runAt !== 'auto') rec.runAt = rest.runAt;
+      if (rest.world && rest.world !== 'auto') rec.world = rest.world as any;
+      if (typeof rest.allFrames === 'boolean') rec.allFrames = rest.allFrames;
+      if (typeof rest.persist === 'boolean') rec.persist = rest.persist;
+      if (typeof rest.dnrFallback === 'boolean') rec.dnrFallback = rest.dnrFallback;
+      if (rest.tags) rec.tags = rest.tags;
+      if (typeof rest.script === 'string') rec.script = rest.script;
+      rec.updatedAt = now();
+      return rec;
+    });
+    if (!changed) return createErrorResponse('userscript not found');
     return { content: [{ type: 'text', text: JSON.stringify({ ok: true }) }], isError: false };
   }
 
   private async remove(args: any): Promise<ToolResult> {
     const { id } = args || {};
     if (!id) return createErrorResponse('id is required');
-    const all = await loadAllRecords();
-    const rec = all[id];
+    const rec = await changeRecords((records) => {
+      const record = records[id];
+      delete records[id];
+      return record;
+    });
     if (!rec) return createErrorResponse('userscript not found');
-    delete all[id];
-    await saveAllRecords(all);
 
     if (rec.sourceType === 'CSS') {
       const active = await getActiveTab();

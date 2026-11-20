@@ -1,12 +1,14 @@
 export const USER_SCRIPT_ACCESS_HELP =
   "JavaScript userscripts are unavailable. Use Chrome 138 or newer and enable Allow User Scripts in this extension's Details at chrome://extensions. On Chrome 135?137, enable Developer mode.";
 
-export function getUserScriptApi(): typeof chrome.userScripts | undefined {
+export async function getUserScriptApi(): Promise<typeof chrome.userScripts | undefined> {
   try {
     const api = chrome.userScripts;
-    return typeof api?.execute === 'function' ? api : undefined;
+    if (typeof api?.execute !== 'function') return undefined;
+    await api.getScripts();
+    return api;
   } catch {
-    // Older Chrome versions may throw when accessing the disabled API.
+    // Chrome can keep the namespace but reject methods after access is revoked.
     return undefined;
   }
 }

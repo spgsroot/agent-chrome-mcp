@@ -4216,7 +4216,10 @@
   // ============================================================================
 
   function start() {
-    if (STATE.active) return;
+    if (STATE.active) {
+      if (IS_MAIN) postToChildFrames({ type: 'em-activate' });
+      return;
+    }
     STATE.active = true;
 
     if (IS_MAIN) {

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, jest, test } from '@jest/globals';
+import { createHash, randomUUID } from 'node:crypto';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type ServerInstance from './index';
@@ -145,6 +146,7 @@ describe('Server lifecycle', () => {
     const input = nativeHost as unknown as {
       setupMessageHandling(): void;
       handleMessage(message: unknown): Promise<void>;
+      writeNativeMessage(message: Record<string, unknown>): Promise<void>;
     };
     jest.spyOn(input, 'setupMessageHandling').mockImplementation(() => undefined);
     const send = jest.spyOn(nativeHost, 'sendMessage').mockImplementation(() => undefined);
@@ -198,6 +200,34 @@ describe('Server lifecycle', () => {
     );
     const response = await fetch(`http://127.0.0.1:${port}/ping`);
     await expect(response.json()).resolves.toEqual({ status: 'ok', message: 'pong' });
+
+    const artifactId = `test-${randomUUID()}`;
+    const data = Buffer.from('custom-port artifact');
+    nativeHost.getArtifactStore().receiveChunk({
+      artifactId,
+      contentType: 'text/plain',
+      size: data.length,
+      sha256: createHash('sha256').update(data).digest('hex'),
+      seq: 0,
+      eof: true,
+      data: data.toString('base64'),
+    });
+    const write = jest.spyOn(input, 'writeNativeMessage').mockResolvedValue();
+    const result = nativeHost.sendRequestToExtensionAndWait({}, 'call_tool', 2_000);
+    const request = write.mock.calls.at(-1)?.[0];
+    await input.handleMessage({
+      version: 2,
+      type: 'response',
+      requestId: request?.requestId,
+      traceId: request?.traceId,
+      ok: true,
+      result: { artifactId },
+    });
+    const artifactResponse = await result;
+    const artifactUrl = new URL(String(artifactResponse.url));
+    expect(artifactUrl.host).toBe(`127.0.0.1:${port}`);
+    const download = await fetch(artifactUrl);
+    await expect(download.text()).resolves.toBe(data.toString());
   });
 
   test('stop() releases the port while an MCP client holds a stream open', async () => {
