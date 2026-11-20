@@ -309,6 +309,7 @@ const form = ref({
 const submitting = ref(false);
 const lastResult = ref('');
 const userScriptsAvailable = ref(true);
+let userScriptsAccessTimer: number | undefined;
 
 function formatTime(ts?: number) {
   if (!ts) return '';
@@ -467,6 +468,10 @@ onMounted(async () => {
   window.addEventListener('focus', refreshUserScriptsAccess);
   document.addEventListener('visibilitychange', refreshUserScriptsAccess);
   void refreshUserScriptsAccess();
+  // Chrome's per-extension toggle can change without a permissions event.
+  userScriptsAccessTimer = window.setInterval(() => {
+    if (!document.hidden) void refreshUserScriptsAccess();
+  }, 1000);
   await loadEmergency();
   await loadProxy();
   await reload();
@@ -474,6 +479,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('focus', refreshUserScriptsAccess);
   document.removeEventListener('visibilitychange', refreshUserScriptsAccess);
+  window.clearInterval(userScriptsAccessTimer);
 });
 
 function m(key: string, substitutions?: string | string[]) {
