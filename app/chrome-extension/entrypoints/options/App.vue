@@ -391,11 +391,11 @@ async function reload() {
 }
 
 async function apply(mode: 'auto' | 'once') {
-  if (!form.value.script.trim()) return;
-  await refreshUserScriptsAccess();
+  if (submitting.value || !form.value.script.trim()) return;
   submitting.value = true;
   lastResult.value = '';
   try {
+    await refreshUserScriptsAccess();
     const args: any = {
       script: form.value.script,
       name: form.value.name || undefined,

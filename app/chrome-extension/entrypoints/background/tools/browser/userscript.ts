@@ -277,71 +277,58 @@ ${record.script}
   return results.length > 0;
 }
 
-async function reinjectForTab(tabId: number, url?: string) {
-  // Emergency global switch
-  const flag = (await chrome.storage.local.get([STORAGE_KEYS.USERSCRIPTS_DISABLED]))[
-    STORAGE_KEYS.USERSCRIPTS_DISABLED
-  ];
-  if (flag) return;
-  const all = await loadAllRecords();
-  for (const rec of Object.values(all)) {
-    if (!rec.enabled || !rec.persist || rec.runAt !== 'document_idle') continue;
-    if (!shouldApply(rec, url)) continue;
-    try {
-      await applyRecord(tabId, rec);
-    } catch (e) {
-      if (!(e instanceof Error) || e.message !== USER_SCRIPT_ACCESS_HELP) {
-        console.warn('Reinject failed for tab', tabId, rec.id, e);
-      }
-    }
+async function reinjectStoredRecord(
+  tabId: number,
+  url: string | undefined,
+  runAt: UserscriptRecord['runAt'],
+  id: string,
+) {
+  const stored = await chrome.storage.local.get([
+    STORAGE_KEYS.USERSCRIPTS_DISABLED,
+    STORAGE_KEYS.USERSCRIPTS,
+  ]);
+  if (stored[STORAGE_KEYS.USERSCRIPTS_DISABLED]) return;
+  const records = stored[STORAGE_KEYS.USERSCRIPTS] as Record<string, UserscriptRecord> | undefined;
+  const record = records?.[id];
+  if (record?.enabled && record.persist && record.runAt === runAt && shouldApply(record, url)) {
+    await applyRecord(tabId, record);
   }
 }
 
-// Tab update listener: re-apply enabled persistent scripts
+async function reinjectForTab(
+  tabId: number,
+  url: string | undefined,
+  runAt: UserscriptRecord['runAt'],
+) {
+  const records = await loadAllRecords();
+  for (const record of Object.values(records)) {
+    if (record.runAt !== runAt) continue;
+
+    // Chrome waits for a script's returned promise. Start each script
+    // independently so a slow script cannot block the rest of the document.
+    void reinjectStoredRecord(tabId, url, runAt, record.id).catch((error: unknown) => {
+      if (!(error instanceof Error) || error.message !== USER_SCRIPT_ACCESS_HELP) {
+        console.warn('Reinject failed for tab', tabId, record.id, error);
+      }
+    });
+  }
+}
+
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete') {
-    reinjectForTab(tabId, tab.url).catch(() => {});
+    void reinjectForTab(tabId, tab.url, 'document_idle').catch(() => {});
   }
 });
 
-// webNavigation based runAt mapping
-chrome.webNavigation.onCommitted.addListener(async (details) => {
-  if (details.frameId !== 0) return;
-  const tab = await chrome.tabs.get(details.tabId).catch(() => null);
-  if (!tab) return;
-  const disabled = (await chrome.storage.local.get([STORAGE_KEYS.USERSCRIPTS_DISABLED]))[
-    STORAGE_KEYS.USERSCRIPTS_DISABLED
-  ];
-  if (disabled) return;
-  const all = await loadAllRecords();
-  for (const rec of Object.values(all)) {
-    if (!rec.enabled || !rec.persist || rec.runAt !== 'document_start') continue;
-    if (!shouldApply(rec, tab.url)) continue;
-    try {
-      await applyRecord(details.tabId, rec);
-    } catch {
-      // noop
-    }
+chrome.webNavigation.onCommitted.addListener((details) => {
+  if (details.frameId === 0) {
+    void reinjectForTab(details.tabId, details.url, 'document_start').catch(() => {});
   }
 });
 
-chrome.webNavigation.onDOMContentLoaded.addListener(async (details) => {
-  if (details.frameId !== 0) return;
-  const tab = await chrome.tabs.get(details.tabId).catch(() => null);
-  if (!tab) return;
-  const disabled = (await chrome.storage.local.get([STORAGE_KEYS.USERSCRIPTS_DISABLED]))[
-    STORAGE_KEYS.USERSCRIPTS_DISABLED
-  ];
-  if (disabled) return;
-  const all = await loadAllRecords();
-  for (const rec of Object.values(all)) {
-    if (!rec.enabled || !rec.persist || rec.runAt !== 'document_end') continue;
-    if (!shouldApply(rec, tab.url)) continue;
-    try {
-      await applyRecord(details.tabId, rec);
-    } catch {
-      // noop
-    }
+chrome.webNavigation.onDOMContentLoaded.addListener((details) => {
+  if (details.frameId === 0) {
+    void reinjectForTab(details.tabId, details.url, 'document_end').catch(() => {});
   }
 });
 

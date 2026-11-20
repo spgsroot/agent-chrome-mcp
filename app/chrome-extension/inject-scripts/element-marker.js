@@ -2846,7 +2846,7 @@
   }
 
   function postToChildFrames(message) {
-    for (const frame of Array.from(document.querySelectorAll('iframe, frame'))) {
+    for (const frame of queryAllDeep('iframe, frame')) {
       try {
         frame.contentWindow?.postMessage(message, '*');
       } catch {}
@@ -4240,6 +4240,7 @@
 
   function stop() {
     STATE.active = false;
+    postToChildFrames({ type: 'em-deactivate' });
     StateStore.set({ boxSelect: false });
     if (STATE.selectionMode === 'manual') StateStore.set({ listMode: false });
 
@@ -4621,6 +4622,10 @@
         if (data.type === 'em-activate' && ev.source === window.parent && !IS_MAIN) {
           start();
           postToChildFrames({ type: 'em-activate' });
+          return;
+        }
+        if (data.type === 'em-deactivate' && ev.source === window.parent && !IS_MAIN) {
+          stop();
           return;
         }
         if (data.type === 'em-similar-scope' && ev.source === window.parent) {

@@ -145,4 +145,71 @@ describe('userscript page scope', () => {
     expect(Object.values(records)).toMatchObject([{ script }]);
     expect(records[id]).toBeUndefined();
   });
+
+  test('reinjects eligible scripts independently using current stored settings', async () => {
+    vi.resetModules();
+    const slow = Promise.withResolvers<chrome.userScripts.InjectionResult[]>();
+    const record = (id: string, script: string) => ({
+      id,
+      script,
+      sourceType: 'JS',
+      matches: ['http://127.0.0.1/*'],
+      excludes: [],
+      enabled: true,
+      persist: true,
+      runAt: 'document_idle',
+      world: 'ISOLATED',
+      allFrames: false,
+    });
+    const stored = {
+      slow: record('slow', 'await Promise.resolve();'),
+      fast: record('fast', 'document.title = "Current";'),
+    };
+    const execute = vi.fn(({ worldId }: chrome.userScripts.UserScriptInjection) =>
+      worldId === 'slow' ? slow.promise : Promise.resolve([{ frameId: 0 }]),
+    );
+    let emergency = false;
+    vi.stubGlobal('chrome', {
+      ...chrome,
+      storage: {
+        local: {
+          get: async (keys: string[]) =>
+            keys.includes(STORAGE_KEYS.USERSCRIPTS_DISABLED)
+              ? {
+                  [STORAGE_KEYS.USERSCRIPTS]: stored,
+                  [STORAGE_KEYS.USERSCRIPTS_DISABLED]: emergency,
+                }
+              : {
+                  [STORAGE_KEYS.USERSCRIPTS]: {
+                    ...stored,
+                    removed: record('removed', 'document.title = "Removed";'),
+                  },
+                },
+        },
+      },
+      userScripts: { execute, getScripts: vi.fn().mockResolvedValue([]) },
+      webNavigation: {
+        ...chrome.webNavigation,
+        getAllFrames: vi.fn().mockResolvedValue([{ frameId: 0, url, documentId: 'top' }]),
+      },
+    });
+    await import('@/entrypoints/background/tools/browser/userscript');
+    const onUpdated = vi.mocked(chrome.tabs.onUpdated.addListener).mock.lastCall?.[0];
+    const tab = { id: 17, url } as chrome.tabs.Tab;
+    expect(onUpdated).toBeDefined();
+    onUpdated?.(17, { status: 'complete' }, tab);
+    try {
+      await vi.waitFor(() =>
+        expect(execute.mock.calls.map(([options]) => options.worldId)).toEqual(['slow', 'fast']),
+      );
+    } finally {
+      slow.resolve([]);
+    }
+    emergency = true;
+    const calls = execute.mock.calls.length;
+    onUpdated?.(17, { status: 'complete' }, tab);
+    // The global switch is read asynchronously after the initial record list.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(execute).toHaveBeenCalledTimes(calls);
+  });
 });
