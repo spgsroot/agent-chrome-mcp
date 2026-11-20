@@ -79,7 +79,7 @@ To change the listening port, disconnect, enter a free port, and connect again.
 The native host uses `CHROME_MCP_PORT` first, then `MCP_HTTP_PORT`, then the
 saved popup port. The default is `12306`.
 
-<img src="docs/images/connected-popup.png" alt="Extension popup showing a connected native host and the compatible Streamable HTTP endpoint" width="400" />
+<img src="docs/images/connected-popup.png" alt="Extension popup showing Server running on custom port 28306 and the compatible Streamable HTTP configuration with the /mcp endpoint" width="400" />
 
 The native-host name remains `com.chromemcp.nativehost` for protocol compatibility.
 Registration replaces an existing registration under that name. Do not register
@@ -186,8 +186,8 @@ See [Chrome's User Scripts documentation](https://developer.chrome.com/docs/exte
 The popup shows the native connection, the selected MCP client configuration,
 browser tool settings, and shortcuts to page tools and diagnostics.
 
-<img src="docs/images/popup-native-connection.png" alt="Native connection status and port controls" width="400" />
-<img src="docs/images/popup-mcp-client.png" alt="Transport selector and copyable MCP configuration" width="400" />
+<img src="docs/images/popup-native-connection.png" alt="Native connection card showing Server running with the MCP server listening on the saved custom port 28306" width="400" />
+<img src="docs/images/popup-mcp-client.png" alt="Transport selector set to Streamable HTTP (compatible) with the copyable configuration and the matching /mcp endpoint" width="400" />
 <img src="docs/images/popup-settings.png" alt="Background operations and page timeout settings" width="400" />
 <img src="docs/images/popup-utilities.png" alt="Utilities shortcuts in the popup" width="400" />
 
@@ -203,7 +203,7 @@ browser tool settings, and shortcuts to page tools and diagnostics.
 <summary>Proxy and Userscripts settings</summary>
 
 ![Residential proxy controls in Options](docs/images/options-proxy.png)
-![Userscript controls and local script records in Options](docs/images/options-userscripts.png)
+![Userscripts Manager in Options with a saved local script, shown with Allow User Scripts enabled in Chrome](docs/images/options-userscripts.png)
 
 </details>
 
