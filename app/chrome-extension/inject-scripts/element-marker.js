@@ -2845,8 +2845,29 @@
     );
   }
 
+  function childFrames(selector = 'iframe, frame') {
+    const roots = [document];
+    const frames = [];
+    try {
+      for (const root of roots) {
+        for (const element of root.querySelectorAll('*')) {
+          if (element.shadowRoot) roots.push(element.shadowRoot);
+          if (
+            (element.localName === 'iframe' || element.localName === 'frame') &&
+            element.matches(selector)
+          ) {
+            frames.push(element);
+          }
+        }
+      }
+    } catch {
+      return [];
+    }
+    return frames;
+  }
+
   function postToChildFrames(message) {
-    for (const frame of queryAllDeep('iframe, frame')) {
+    for (const frame of childFrames()) {
       try {
         frame.contentWindow?.postMessage(message, '*');
       } catch {}
@@ -3939,9 +3960,7 @@
     }
 
     const [segment, ...remainingPath] = framePath;
-    const frames = queryAllDeep(segment.selector).filter(
-      (element) => element instanceof HTMLIFrameElement || element instanceof HTMLFrameElement,
-    );
+    const frames = childFrames(segment.selector);
     if (frames.length > 1) return { success: true, matchCount: frames.length };
     const frame = frames[0];
     if (!frame?.contentWindow) {
@@ -4000,11 +4019,7 @@
 
   async function requestFrameMemberOperation(member, operation, valueType) {
     const [segment, ...remainingPath] = member.framePath || [];
-    const frames = segment
-      ? queryAllDeep(segment.selector).filter(
-          (element) => element instanceof HTMLIFrameElement || element instanceof HTMLFrameElement,
-        )
-      : [];
+    const frames = segment ? childFrames(segment.selector) : [];
     if (frames.length !== 1 || !frames[0]?.contentWindow) {
       return { success: false, value: '', error: 'iframe locator is invalid or not unique' };
     }
@@ -4667,8 +4682,7 @@
         // Following messages only relevant when overlay is active
         if (!STATE.active) return;
 
-        const iframes = Array.from(document.querySelectorAll('iframe'));
-        const host = iframes.find((f) => {
+        const host = childFrames().find((f) => {
           try {
             return f.contentWindow === ev.source;
           } catch {
