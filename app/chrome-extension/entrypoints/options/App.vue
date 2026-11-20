@@ -465,12 +465,16 @@ async function refreshUserScriptsAccess() {
 
 onMounted(async () => {
   window.addEventListener('focus', refreshUserScriptsAccess);
+  document.addEventListener('visibilitychange', refreshUserScriptsAccess);
   void refreshUserScriptsAccess();
   await loadEmergency();
   await loadProxy();
   await reload();
 });
-onUnmounted(() => window.removeEventListener('focus', refreshUserScriptsAccess));
+onUnmounted(() => {
+  window.removeEventListener('focus', refreshUserScriptsAccess);
+  document.removeEventListener('visibilitychange', refreshUserScriptsAccess);
+});
 
 function m(key: string, substitutions?: string | string[]) {
   const msg = (globalThis.chrome?.i18n?.getMessage(key, substitutions as any) || '').trim();
