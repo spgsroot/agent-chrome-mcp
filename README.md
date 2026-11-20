@@ -5,22 +5,21 @@
 <h1 align="center">Agent Chrome MCP</h1>
 
 <p align="center">
-  <b>Browser-only control for MCP clients</b><br />
-  A local Chrome extension and native bridge that expose your existing browser
-  session over the Model Context Protocol.
+  Control an existing Chrome session from a Model Context Protocol client
+  through a local Chrome extension and native bridge.
 </p>
 
 ---
 
 ## What this project is
 
-- **Chrome extension** (`app/chrome-extension/`) — owns Chrome APIs, DOM
-  interaction, screenshots, network inspection, cookies, storage, bookmarks,
-  history, downloads, and the rest of the browser tool surface.
-- **Native bridge** (`app/native-server/`) — Chrome Native Messaging host and
-  local MCP server exposing Streamable HTTP, legacy SSE, and STDIO transports.
-- **Shared package** (`packages/shared/`) — MCP tool schemas and the native
-  protocol used by both sides.
+The extension (`app/chrome-extension/`) uses Chrome APIs to interact with pages,
+capture screenshots, inspect network traffic, and manage browser data such as
+cookies, bookmarks, history, and downloads.
+
+The bridge (`app/native-server/`) connects to the extension through Chrome
+Native Messaging and serves MCP over Streamable HTTP, legacy SSE, and STDIO.
+Both components use the tool schemas and native protocol in `packages/shared/`.
 
 Your MCP client runs the model and decides when to call the browser tools.
 
@@ -32,15 +31,13 @@ Your MCP client runs the model and decides when to call the browser tools.
 
 ## Install
 
-Download both assets from the [latest release](https://github.com/spgsroot/agent-chrome-mcp/releases/latest):
+Download the extension and bridge from the [latest release](https://github.com/spgsroot/agent-chrome-mcp/releases/latest).
 
 - `agent-chrome-mcp-extension-2.8.6.zip`
 - `agent-chrome-mcp-bridge-2.8.6.tar.gz`
 
-Use the filenames from your downloaded release if its version differs from the examples below.
-
-The bridge archive includes its production dependencies. Node.js 24 or newer is
-required; no npm package installation is needed. The browser workflow below was verified on Windows with an isolated Chromium profile.
+Use the filenames from your release in the commands below. The bridge archive
+includes its production dependencies and runs with Node.js 24 or newer.
 
 ### 1. Load the extension
 
@@ -51,8 +48,7 @@ Unzip the extension, open `chrome://extensions/`, enable **Developer mode**, cli
 
 ### 2. Register the native bridge
 
-Extract the bridge to a permanent directory. Run these commands from the
-directory that contains the downloaded archive on macOS or Linux.
+On macOS or Linux, run these commands from the directory containing the archive.
 
 ```bash
 tar -xzf agent-chrome-mcp-bridge-2.8.6.tar.gz
@@ -61,7 +57,7 @@ node dist/cli.js --version
 CHROME_MCP_EXTENSION_ID=YOUR_EXTENSION_ID node dist/cli.js register --browser chrome
 ```
 
-In Windows PowerShell, use the following commands.
+In Windows PowerShell, start in the directory containing the archive.
 
 ```powershell
 tar -xzf agent-chrome-mcp-bridge-2.8.6.tar.gz
@@ -71,25 +67,26 @@ $env:CHROME_MCP_EXTENSION_ID = 'YOUR_EXTENSION_ID'
 node dist/cli.js register --browser chrome
 ```
 
-Replace `YOUR_EXTENSION_ID` with the ID from `chrome://extensions/`. Choose
-`--browser chromium` if you loaded the extension in Chromium. Registration
-stores the bridge's absolute path, so keep the extracted directory in place.
-Open the extension popup and click **Connect**. Chrome starts the native bridge
-and the popup shows **Server running** when the MCP endpoint is ready.
-To change the listening port, disconnect, enter a free port, and connect again.
-The native host uses `CHROME_MCP_PORT` first, then `MCP_HTTP_PORT`, then the
-saved popup port. The default is `12306`.
+Replace `YOUR_EXTENSION_ID` with the ID from `chrome://extensions/`. Select
+`--browser chromium` for Chromium. The registration stores the bridge's
+absolute path. Keep the extracted bridge in the same location.
 
-<img src="docs/images/connected-popup.png" alt="Extension popup showing a connected native host and the compatible Streamable HTTP endpoint" width="400" />
+Click **Connect** in the extension popup. Chrome starts the native bridge, and
+the popup shows **Server running** once MCP is ready. To change the port,
+disconnect, enter a free port, and connect again. The bridge uses
+`CHROME_MCP_PORT` first, then `MCP_HTTP_PORT`, then the saved popup port.
+The default is `12306`.
 
-The native-host name remains `com.chromemcp.nativehost` for protocol compatibility.
-Registration replaces an existing registration under that name. Do not register
-this build alongside an older mcp-chrome installation you still use.
+<img src="docs/images/connected-popup.png" alt="Connected popup on port 28306 with /mcp in both the compatible HTTP configuration and endpoint label" width="400" />
+
+The bridge registers as `com.chromemcp.nativehost` for protocol compatibility.
+It replaces any existing registration under that name, including an older
+mcp-chrome installation.
 
 ### 3. Configure your MCP client
 
-STDIO requires no HTTP API key. Replace the path below with the bridge's absolute
-path.
+For STDIO, replace the example path with the absolute path to the bridge.
+STDIO works without an HTTP API key.
 
 ```json
 {
@@ -106,11 +103,11 @@ If you changed the port in the extension, set `MCP_SERVER_URL` in the STDIO
 client's environment to `http://127.0.0.1:PORT/mcp-new`, using the port shown in
 the popup.
 
-For HTTP clients, use `http://127.0.0.1:12306/mcp-new` (stateless),
-`http://127.0.0.1:12306/mcp` (session-based), or `/sse` (legacy). Configure
-`CHROME_MCP_API_KEY` in the bridge process environment and send the same key as
-`Authorization: Bearer ...`. A bare HTTP URL is insufficient: requests without a
-key or explicitly allowed Origin are rejected. See [Security](#security).
+For HTTP, choose `http://127.0.0.1:12306/mcp-new` for stateless requests,
+`http://127.0.0.1:12306/mcp` for sessions, or `/sse` for a legacy client.
+Set `CHROME_MCP_API_KEY` in the bridge's environment and send the same key
+as `Authorization: Bearer ...`. The bridge requires a key or an allowed Origin.
+See [Security](#security).
 
 ### Build from source
 
@@ -133,9 +130,9 @@ with Python 3.
 python -m http.server 8765 --bind 127.0.0.1 --directory docs/demo
 ```
 
-Connect the extension and use your MCP client's tool panel to make these calls.
-The example was verified against the compatible Streamable HTTP endpoint
-(`/mcp`) with a source build on Windows and a fresh Chromium profile.
+Connect the extension, then call the following tools from your MCP client.
+This example ran on Windows in a fresh Chromium profile against the compatible
+Streamable HTTP endpoint (`/mcp`).
 
 1. Call `chrome_navigate` with these arguments. Keep the `tabId` from the first
    entry in the response's `tabs` array.
@@ -174,21 +171,18 @@ and turn on **Allow User Scripts** before using **Options → Userscripts**.
 Chrome 135–137 uses **Developer mode** for this permission. CSS userscripts
 and the other browser tools work with **Allow User Scripts** off.
 
-Enter page patterns under **Matches** and exceptions under **Excludes**. When
-Matches is empty and the script has no matching metadata, the extension uses
-the last web tab in the Options window to derive the scheme and host. JavaScript
-runs in a separate userscript world by default. Turning off **Allow User Scripts**
-prevents new executions, including after reload.
+Use **Matches** to choose pages and **Excludes** to skip specific URLs. If both
+Matches and the script's matching metadata are empty, the extension uses the
+scheme and host of the last web tab in the Options window. JavaScript runs in a
+separate userscript world by default. Turn off **Allow User Scripts** to stop
+new executions, including after a reload.
 
 See [Chrome's User Scripts documentation](https://developer.chrome.com/docs/extensions/reference/api/userScripts).
 
 ## Interface
 
-The popup shows the native connection, the selected MCP client configuration,
-browser tool settings, and shortcuts to page tools and diagnostics.
-
-<img src="docs/images/popup-native-connection.png" alt="Native connection status and port controls" width="400" />
-<img src="docs/images/popup-mcp-client.png" alt="Transport selector and copyable MCP configuration" width="400" />
+<img src="docs/images/popup-native-connection.png" alt="Native connection controls with the server listening on port 28306" width="400" />
+<img src="docs/images/popup-mcp-client.png" alt="Compatible Streamable HTTP selected, with /mcp in the JSON and endpoint label" width="400" />
 <img src="docs/images/popup-settings.png" alt="Background operations and page timeout settings" width="400" />
 <img src="docs/images/popup-utilities.png" alt="Utilities shortcuts in the popup" width="400" />
 
@@ -204,37 +198,35 @@ browser tool settings, and shortcuts to page tools and diagnostics.
 <summary>Proxy and Userscripts settings</summary>
 
 ![Residential proxy controls in Options](docs/images/options-proxy.png)
-![Userscript controls and local script records in Options](docs/images/options-userscripts.png)
+![Userscripts Manager in Options with a saved local script enabled in the list](docs/images/options-userscripts.png)
 
 </details>
 
 ## Security
 
-The service is loopback-only. Every privileged route (`/mcp*`, `/sse`,
-`/messages`, `/status`, diagnostics, service control, request cancellation, and
-artifacts) uses one authorization boundary:
+The bridge listens on loopback. It checks authorization for `/mcp*`, `/sse`,
+`/messages`, `/status`, diagnostics, service control, request cancellation,
+and artifact downloads.
 
-- a valid `CHROME_MCP_API_KEY` (Bearer token or `x-api-key`), or
-- an allowed browser `Origin`:
-  - a `chrome-extension://` origin (the extension popup / MCP bridge), or
-  - the bundled STDIO origin `chrome-extension://mcp-stdio`, or
-  - an origin listed in `CHROME_MCP_ALLOWED_ORIGINS` (comma-separated, exact
-    match).
+Use a valid `CHROME_MCP_API_KEY` as a Bearer token or `x-api-key`, or connect
+from an allowed browser `Origin`. The bridge accepts `chrome-extension://`
+origins and the bundled STDIO origin `chrome-extension://mcp-stdio`. To let a
+web UI connect, add its exact origin to `CHROME_MCP_ALLOWED_ORIGINS`. Use commas
+between entries. This also applies to pages at `http://127.0.0.1:*` and
+`http://localhost:*`.
 
-Requests with neither an allowed Origin nor a key are rejected with `403`.
-Local web pages (`http://127.0.0.1:*` and `http://localhost:*`) are **not**
-trusted implicitly; add one to `CHROME_MCP_ALLOWED_ORIGINS` only when a local
-web UI must connect.
+The bridge returns `403` for a disallowed Origin, even when a request includes
+a key. For a request that has no Origin and lacks valid credentials, the
+bridge returns `401` when an API key is configured and `403` otherwise.
 
-Set `CHROME_MCP_EXTENSION_ID` in the bridge process environment to pin the
-accepted extension Origin. Without it, any installed Chrome extension origin is
-accepted; with it, only that ID and `chrome-extension://mcp-stdio` are accepted.
-The popup reads status through native messaging rather than privileged HTTP.
+Set `CHROME_MCP_EXTENSION_ID` in the bridge process environment to limit
+extension origins to that ID and `chrome-extension://mcp-stdio`. The popup
+reads connection status through Native Messaging.
 
-Artifacts are capability URLs: `/artifacts/:id` requires the one-time `token`
-returned with the tool result.
+The tool result includes a one-time `token` for `/artifacts/:id`. A valid API
+key also authorizes artifact downloads.
 
-Other environment variables:
+### Bridge environment variables
 
 | Variable                                                                                 | Purpose                                          |
 | ---------------------------------------------------------------------------------------- | ------------------------------------------------ |
@@ -249,11 +241,12 @@ Other environment variables:
 
 ## Browser tools
 
-The retained MCP surface covers tabs and navigation, DOM/text/accessibility
-extraction, clicking and form input, screenshots and PDF, GIF capture, network
-capture and request replay, console and debugger state, cookies, storage,
-bookmarks, history, downloads, isolated Chrome profiles, and bounded page
-collection. See [docs/TOOLS.md](docs/TOOLS.md) for the full catalog.
+Use the tools to navigate tabs, read the DOM, page text, and accessibility data, click
+controls, and fill forms. They can capture screenshots, PDFs, and GIFs,
+inspect console and debugger state, capture and replay network requests, and
+manage cookies, storage, bookmarks, history, and downloads. The catalog also
+covers isolated Chrome profiles and bounded page collection. See
+[docs/TOOLS.md](docs/TOOLS.md).
 
 ## Development
 
@@ -266,22 +259,21 @@ pnpm build
 pnpm check:tool-docs
 ```
 
-To produce a bridge directory with locked production dependencies after building:
+After building, package the bridge with its locked production dependencies.
 
 ```bash
 pnpm package:bridge
 tar -czf releases/agent-chrome-mcp-bridge-2.8.6.tar.gz -C releases agent-chrome-mcp-bridge
 ```
 
-The Windows portable bridge executable is built on Windows with
-`pnpm package:windows`; it bundles the bridge runtime and the extension build.
+On Windows, run `pnpm package:windows` to build a portable executable with the
+bridge runtime and the extension.
 
-Architecture details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-Troubleshooting: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) and
-[docs/TROUBLESHOOTING_NATIVE_HOST.md](docs/TROUBLESHOOTING_NATIVE_HOST.md).
+See the [architecture notes](docs/ARCHITECTURE.md), [troubleshooting guide](docs/TROUBLESHOOTING.md),
+and [Native Messaging diagnostics](docs/TROUBLESHOOTING_NATIVE_HOST.md).
 
 ## License
 
-MIT — see [LICENSE](LICENSE). This project is derived from
-[mcp-chrome-2026](https://github.com/spgsroot/mcp-chrome-2026-en); the original
-MIT license and attribution are preserved.
+The project uses the MIT license. See [LICENSE](LICENSE).
+It retains the original license and attribution from
+[mcp-chrome-2026](https://github.com/spgsroot/mcp-chrome-2026-en).
