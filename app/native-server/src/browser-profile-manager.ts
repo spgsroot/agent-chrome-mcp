@@ -6,10 +6,10 @@ import path from 'node:path';
 import net from 'node:net';
 import { promisify } from 'node:util';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { getAgentDataDir } from './agent/storage.js';
 import { UnifiedMcpClient } from './mcp/unified-transport.js';
 
 const execFileAsync = promisify(execFile);
+const DEFAULT_DATA_DIR = path.join(os.homedir(), '.chrome-mcp-agent');
 const PROFILE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 const RESERVED_CHROME_ARGS = [
   '--user-data-dir',
@@ -104,7 +104,11 @@ class ProfileMcpConnection {
 
 function profileRoot(): string {
   const configured = process.env.CHROME_MCP_PROFILE_DIR?.trim();
-  return configured ? path.resolve(configured) : path.join(getAgentDataDir(), 'browser-profiles');
+  if (configured) return path.resolve(configured);
+  // Preserve the directory used by earlier releases so existing profiles keep
+  // working after the assistant feature was removed.
+  const dataDir = process.env.CHROME_MCP_AGENT_DATA_DIR?.trim();
+  return path.join(dataDir ? path.resolve(dataDir) : DEFAULT_DATA_DIR, 'browser-profiles');
 }
 
 function profileFilePath(): string {

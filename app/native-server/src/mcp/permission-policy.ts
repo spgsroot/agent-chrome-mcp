@@ -67,7 +67,7 @@ export function getToolPermissionPolicy(
   };
 }
 
-/** Supports exact names, `*`, and simple trailing-prefix patterns such as `flow.*`. */
+/** Supports exact names, `*`, and simple trailing-prefix patterns such as `chrome_*`. */
 export function matchesToolPattern(toolName: string, pattern: string): boolean {
   if (pattern === '*') return true;
   if (pattern.endsWith('*')) return toolName.startsWith(pattern.slice(0, -1));
@@ -79,7 +79,7 @@ export function matchesAnyToolPattern(toolName: string, patterns: string[]): boo
 }
 
 export function isHighRiskTool(toolName: string): boolean {
-  return toolName.startsWith('flow.') || HIGH_RISK_TOOLS.has(toolName);
+  return HIGH_RISK_TOOLS.has(toolName);
 }
 
 export function checkToolAccess(

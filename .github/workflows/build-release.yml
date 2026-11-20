@@ -1,4 +1,4 @@
-name: Build and Release Chrome Extension
+name: Build Agent Chrome MCP Release
 
 on:
   push:
@@ -25,24 +25,19 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: actions/cache@v4
-        id: wasm-pack-cache
-        with:
-          path: ~/.cargo/bin/wasm-pack
-          key: ${{ runner.os }}-wasm-pack-0.15.0
-      - run: cargo install wasm-pack --locked --version 0.15.0
-        if: steps.wasm-pack-cache.outputs.cache-hit != 'true'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run build:release
+      - run: pnpm run build
       - run: pnpm --filter @ethanwilkins/chrome-mcp-server-2026 zip
       - run: pnpm check:extension-package
+      - run: pnpm package:bridge
+      - run: tar -czf releases/agent-chrome-mcp-bridge.tar.gz -C releases agent-chrome-mcp-bridge
+      - run: node releases/agent-chrome-mcp-bridge/dist/cli.js --version
       - uses: actions/upload-artifact@v4
         with:
-          name: chrome-mcp-server
-          path: app/chrome-extension/.output/*.zip
+          name: agent-chrome-mcp
+          path: |
+            app/chrome-extension/.output/*.zip
+            releases/agent-chrome-mcp-bridge.tar.gz
           if-no-files-found: error
           retention-days: 30
           include-hidden-files: true

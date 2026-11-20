@@ -7,6 +7,12 @@ This guide explains how to configure Codex CLI and Claude Code to connect to the
 The Chrome MCP Server uses `http://127.0.0.1:12306/mcp-new` as the default endpoint.
 The compatibility MCP interface remains available at `http://127.0.0.1:12306/mcp`; legacy SSE and STDIO remain available.
 
+CLI clients commonly send no `Origin` header. Either run the bridge without an
+API key and connect through the STDIO proxy (which sends the trusted
+`chrome-extension://mcp-stdio` origin), or set `CHROME_MCP_API_KEY` and add an
+`Authorization: Bearer <key>` header to the HTTP client. Local web origins are
+not trusted implicitly.
+
 ## Codex CLI Configuration
 
 ### Option 1: HTTP MCP Server (Recommended)
@@ -147,5 +153,4 @@ If port 12306 is already in use:
 | `CHROME_MCP_ENABLE_DEBUG_ENDPOINTS` | Enable local start/stop debug endpoints (`1`)            | disabled                         |
 | `CHROME_MCP_MAX_CONCURRENT_TOOLS`   | Maximum browser tools executing at once                  | 8                                |
 | `CHROME_MCP_MAX_QUEUED_TOOLS`       | Maximum browser tools waiting for a slot                 | 64                               |
-| `MCP_ALLOWED_WORKSPACE_BASE`        | Additional allowed workspace directory                   | (none)                           |
 | `CHROME_MCP_NODE_PATH`              | Override Node.js executable path                         | (auto)                           |

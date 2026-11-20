@@ -75,7 +75,7 @@ function mapTransportError(error: unknown): NativeProtocolError {
   return new NativeProtocolError('BROWSER_ERROR', message);
 }
 
-/** Shared MCP client used by STDIO, agent and profile adapters. */
+/** Shared MCP client used by the STDIO and profile adapters. */
 export class UnifiedMcpClient {
   private client: Client | null = null;
   private transport: StreamableHTTPClientTransport | null = null;

@@ -55,7 +55,7 @@ const languageDrift = [
 if (languageDrift.length) {
   failures.push(`shared tool schema differs between languages: ${languageDrift.join(', ')}`);
 }
-const docs = ['docs/TOOLS.md', 'docs/TOOLS_zh.md'];
+const docs = ['docs/TOOLS.md'];
 for (const file of docs) {
   const documented = readHeadings(file);
   const missing = [...current].filter((name) => !documented.has(name));

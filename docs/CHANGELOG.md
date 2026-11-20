@@ -7,9 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.8.5] - 2026-11-20
+
+First independent Agent Chrome MCP release. Download the extension and bundled
+Node.js bridge from https://github.com/spgsroot/agent-chrome-mcp/releases/tag/v2.8.5.
+
 ### Changed
 
 - **English-first project** — code comments, UI strings, documentation, and the README are now English; English is the default UI language. The canonical tool catalog in `tools.ts` is English, while `tools-zh.ts` keeps the Chinese descriptions the extension zh mode reads.
+- **Browser-only distribution** — the desktop client, Smart Assistant runtime, Quick Panel, Builder/workflow/record-replay stack, local semantic-search package, and their docs/screenshots are removed. The workspace now builds only the extension, native bridge, and shared schemas.
+- **HTTP authorization boundary** — local web pages are no longer trusted implicitly. Privileged routes accept an API key, an allowed extension/STDIO origin, or an explicit `CHROME_MCP_ALLOWED_ORIGINS` entry. Artifacts remain one-time capability URLs. `CHROME_MCP_EXTENSION_ID` pins the accepted extension.
+- **Native protocol** — `rr.listPublishedFlows` and `rr.runFlow` capabilities are removed; MCP tool discovery no longer advertises dynamic `flow.*` tools or `search_tabs_content`.
+
+### Fixed
+
+- Large screenshot downloads now contain the image bytes instead of a JSON response envelope; non-image artifacts retain their actual content type.
+- The popup reads connection status through native messaging without an unauthenticated HTTP probe that Chrome rejects.
+- **File-handler containment** — upload names are reduced to one path segment and verified inside the temp directory; cleanup uses resolved-path containment; the unused `readBase64File` native action is removed.
+- **Takeover authorization** — the port-takeover control request now uses the trusted STDIO origin and no longer accepts a browser page origin.
+- **Cancellation reporting** — JavaScript, computer input, and tab-switch calls are reported as `EXECUTION_UNKNOWN` when a side effect may have run.
+
+### Removed
+
+- `app/desktop-client/`, `packages/wasm-simd/`, agent engines/sessions/projects/attachments/DB routes, workflow/record-replay contracts, Quick Panel/Smart Assistant/Visual Editor docs, screenshots, prompt/design artifacts, and their build/CI/package scripts.
 
 ## [v2.7.6] - 2026-09-13
 

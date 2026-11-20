@@ -50,7 +50,7 @@ async function createPackageFixture(t, { entries = REQUIRED_EXTENSION_FILES, zip
   return { zipPath };
 }
 
-test('accepts a WASM-only package under the configured size limit', async (t) => {
+test('accepts a package with the runtime entrypoints under the size limit', async (t) => {
   const fixture = await createPackageFixture(t);
   const result = await checkExtensionPackage(fixture);
   assert.equal(result.zipSizeBytes > 0, true);
@@ -64,15 +64,13 @@ test('rejects ZIP archives that still include JSEP assets', async (t) => {
 });
 
 test('rejects packages over the maximum size', async (t) => {
-  const fixture = await createPackageFixture(t, { zipSize: 7_500_001 });
-  await assert.rejects(checkExtensionPackage(fixture), /exceeds 7500000 bytes/);
+  const fixture = await createPackageFixture(t, { zipSize: 4_000_001 });
+  await assert.rejects(checkExtensionPackage(fixture), /exceeds 4000000 bytes/);
 });
 
-test('rejects ZIP archives missing required WASM runtime files', async (t) => {
+test('rejects ZIP archives missing runtime entrypoints', async (t) => {
   const fixture = await createPackageFixture(t, {
-    entries: REQUIRED_EXTENSION_FILES.filter(
-      (file) => file !== 'workers/ort-wasm-simd-threaded.wasm',
-    ),
+    entries: REQUIRED_EXTENSION_FILES.filter((file) => file !== 'background.js'),
   });
   await assert.rejects(checkExtensionPackage(fixture), /Missing required package files/);
 });

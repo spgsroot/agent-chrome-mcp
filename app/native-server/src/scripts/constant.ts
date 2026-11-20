@@ -4,6 +4,12 @@ import path from 'path';
 
 export const COMMAND_NAME = 'mcp-chrome-bridge';
 const DEFAULT_EXTENSION_ID = 'djclnaepokchbblcnepfempfdhejjdml';
+const EXTENSION_ID_PATTERN = /^[a-p]{32}$/;
+
+function configuredExtensionId(): string | null {
+  const value = process.env.CHROME_MCP_EXTENSION_ID?.trim();
+  return value && EXTENSION_ID_PATTERN.test(value) ? value : null;
+}
 
 function getExtensionIdFromBuild(): string {
   try {
@@ -26,7 +32,8 @@ function getExtensionIdFromBuild(): string {
 }
 
 // Native Messaging must use the extension ID generated from its manifest key.
-// The fallback keeps published standalone Native Host installs compatible.
-export const EXTENSION_ID = getExtensionIdFromBuild();
+// An unpacked source build has no key, so CHROME_MCP_EXTENSION_ID must name the
+// ID Chrome assigned to it. The fallback keeps published installs compatible.
+export const EXTENSION_ID = configuredExtensionId() ?? getExtensionIdFromBuild();
 export const HOST_NAME = 'com.chromemcp.nativehost';
 export const DESCRIPTION = 'Node.js Host for Browser Bridge Extension';

@@ -366,48 +366,6 @@ Response contains `pageContent` (text tree), `viewport`, and a `refMapCount` sum
 
 Capture visible actionable controls in one structured observation. The response includes a short-lived `snapshotId` and each control's frame-scoped `ref` (for example, `frame:0:ref_1`) and `frameId`. Pass all three to `chrome_click_element` or `chrome_fill_or_select`; the action is rejected if that observation is missing, expired, or its target changed. Password, file, and hidden inputs are omitted.
 
-### `search_tabs_content` (Launched: 2025-06-09)
-
-AI-powered semantic search across browser tabs.
-
-**Parameters**:
-
-- `query` (string, required): Search query
-
-**Example**:
-
-```json
-{
-  "query": "machine learning tutorials"
-}
-```
-
-**Response**:
-
-```json
-{
-  "success": true,
-  "totalTabsSearched": 10,
-  "matchedTabsCount": 3,
-  "vectorSearchEnabled": true,
-  "indexStats": {
-    "totalDocuments": 150,
-    "totalTabs": 10,
-    "semanticEngineReady": true
-  },
-  "matchedTabs": [
-    {
-      "tabId": 123,
-      "url": "https://example.com/ml-tutorial",
-      "title": "Machine Learning Tutorial",
-      "semanticScore": 0.85,
-      "matchedSnippets": ["Introduction to machine learning..."],
-      "chunkSource": "content"
-    }
-  ]
-}
-```
-
 ### `chrome_get_web_content` (Launched: 2025-06-09)
 
 Extract HTML or text content from web pages.
@@ -1147,7 +1105,7 @@ Extract replies or comments from a root content area with scrolling, nested-item
 
 ### `chrome_error_logs`
 
-Read or clear the raw error logs retained by the browser extension for desktop diagnostics.
+Read or clear the raw error logs retained by the browser extension for local diagnostics.
 
 > The canonical input schema is maintained in the shared package and is checked by pnpm check:tool-docs.
 
@@ -1458,19 +1416,14 @@ await callTool('chrome_click_element', {
   selector: '#load-data-button',
 });
 
-// 5. Search content semantically
-const searchResults = await callTool('search_tabs_content', {
-  query: 'user data analysis',
-});
-
-// 6. Stop network capture
+// 5. Stop network capture
 const networkData = await callTool('chrome_network_capture', { action: 'stop' });
 
-// 7. Save bookmark
+// 6. Save bookmark
 await callTool('chrome_bookmark_add', {
   title: 'Data Analysis Page',
   parentId: 'Work/Analytics',
 });
 ```
 
-This API provides comprehensive browser automation capabilities with AI-enhanced content analysis and semantic search features.
+This API provides comprehensive browser automation capabilities.

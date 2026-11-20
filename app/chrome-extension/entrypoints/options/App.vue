@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <header class="topbar">
-      <h1>{{ m('userscriptsManagerTitle') }}</h1>
+      <h1>Chrome MCP settings</h1>
       <div class="switch">
         <label>
           <input type="checkbox" v-model="emergencyDisabled" @change="saveEmergency" />
@@ -10,7 +10,7 @@
       </div>
     </header>
 
-    <section v-if="hiddenInterfaceUnlocked" class="proxy">
+    <section class="proxy">
       <h2>Residential proxy</h2>
       <p class="description"
         >The reverse entry uses <code>pr.oxylabs.io:7777</code> + <code>cc-XX</code>;
@@ -127,7 +127,8 @@
     </section>
 
     <section class="create">
-      <h2>{{ m('createRunSectionTitle') }}</h2>
+      <h2>{{ m('userscriptsManagerTitle') }}</h2>
+      <p class="description">{{ m('createRunSectionTitle') }}</p>
       <div class="grid">
         <label>
           {{ m('nameLabel') }}
@@ -252,8 +253,6 @@
         </tbody>
       </table>
     </section>
-
-    <!-- Flow Editor removed: unified to Builder in Popup -->
   </div>
 </template>
 
@@ -272,7 +271,6 @@ type ListItem = {
 };
 
 const emergencyDisabled = ref(false);
-const hiddenInterfaceUnlocked = ref(false);
 const items = ref<ListItem[]>([]);
 const filters = ref({ query: '', status: '', domain: '' });
 const proxy = reactive({
@@ -360,15 +358,8 @@ async function saveProxy() {
 }
 
 async function loadEmergency() {
-  const v = await globalThis.chrome?.storage?.local.get([STORAGE_KEYS.USERSCRIPTS_DISABLED] as any);
+  const v = await globalThis.chrome?.storage?.local.get([STORAGE_KEYS.USERSCRIPTS_DISABLED]);
   emergencyDisabled.value = !!v[STORAGE_KEYS.USERSCRIPTS_DISABLED];
-}
-
-async function loadHiddenInterfaceState() {
-  const stored = await globalThis.chrome?.storage?.local.get(
-    STORAGE_KEYS.HIDDEN_INTERFACE_UNLOCKED,
-  );
-  hiddenInterfaceUnlocked.value = stored?.[STORAGE_KEYS.HIDDEN_INTERFACE_UNLOCKED] === true;
 }
 
 async function callTool(name: string, args: any) {
@@ -466,7 +457,6 @@ async function exportAll() {
 
 onMounted(async () => {
   await loadEmergency();
-  await loadHiddenInterfaceState();
   await loadProxy();
   await reload();
 });
@@ -518,7 +508,7 @@ function m(key: string, substitutions?: string | string[]) {
 label {
   display: flex;
   flex-direction: column;
-  font-size: 12px;
+  font-size: 13px;
   gap: 4px;
 }
 input,
@@ -527,7 +517,14 @@ textarea {
   border: 1px solid #d1d5db;
   border-radius: 6px;
   padding: 8px;
-  font-size: 12px;
+  font-size: 13px;
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
 }
 textarea {
   resize: vertical;
@@ -539,15 +536,20 @@ textarea {
   margin-top: 8px;
 }
 button {
-  background: #3b82f6;
+  background: #1d4ed8;
   color: #fff;
   border: none;
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: 6px;
+  font-size: 13px;
   cursor: pointer;
 }
 button:hover {
-  background: #2563eb;
+  background: #1e40af;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .hint {
   color: #374151;

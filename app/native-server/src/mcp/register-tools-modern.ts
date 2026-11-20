@@ -6,17 +6,16 @@ import {
 } from '@modelcontextprotocol/server';
 import { TOOL_SCHEMAS } from '@ethanwilkins/chrome-mcp-shared-2026';
 import { filterToolsByPermission, getToolPermissionPolicy } from './permission-policy.js';
-import { getToolDeadlineAt, handleToolCall, listDynamicFlowTools } from './register-tools.js';
+import { getToolDeadlineAt, handleToolCall } from './register-tools.js';
 
 type ToolProgressReporter = (progress: Record<string, unknown>) => void | Promise<void>;
 
 /** Register the same Chrome tools for the 2026-07-28 per-request server. */
 export const setupModernTools = (server: Server): void => {
   server.setRequestHandler('tools/list', async () => {
-    const dynamicTools = await listDynamicFlowTools();
     const policy = getToolPermissionPolicy();
     return {
-      tools: filterToolsByPermission([...TOOL_SCHEMAS, ...dynamicTools] as Tool[], policy),
+      tools: filterToolsByPermission(TOOL_SCHEMAS as Tool[], policy),
     };
   });
 

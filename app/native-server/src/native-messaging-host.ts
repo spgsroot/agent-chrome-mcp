@@ -18,7 +18,7 @@ import {
   type NativeConnectionState,
   type NativeArtifact,
 } from '@ethanwilkins/chrome-mcp-shared-2026';
-import { NATIVE_SERVER_PORT, TIMEOUTS } from './constant';
+import { MCP_API_KEY_ENV, NATIVE_SERVER_PORT, STDIO_MCP_ORIGIN, TIMEOUTS } from './constant';
 import fileHandler from './file-handler';
 import { ArtifactStore } from './artifact-store.js';
 import { LocalEventWebSocketServer, type EventChannelInfo } from './event-websocket-server.js';
@@ -91,13 +91,21 @@ function isAddressInUse(error: unknown): boolean {
 
 function requestPortTakeover(port: number): Promise<boolean> {
   const { promise, resolve } = Promise.withResolvers<boolean>();
+  const apiKey = process.env[MCP_API_KEY_ENV]?.trim();
   const request = httpRequest(
     {
       hostname: '127.0.0.1',
       port,
       path: '/__chrome_mcp_bridge/takeover',
       method: 'POST',
-      headers: { Connection: 'close' },
+      // The takeover endpoint is origin-protected. This request comes from the
+      // native host, not a browser, so identify it with the bundled local
+      // control origin. Browsers cannot forge an Origin header.
+      headers: {
+        Connection: 'close',
+        Origin: STDIO_MCP_ORIGIN,
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      },
       timeout: 2_000,
     },
     (response) => {
@@ -429,7 +437,6 @@ export class NativeMessagingHost {
         );
         return;
       }
-      this.associatedServer?.observeNativeResponse(pending.method, message.result);
       pending.resolve(
         artifactId && this.artifactStore.get(artifactId)
           ? {
@@ -701,15 +708,10 @@ export class NativeMessagingHost {
   }
 
   private isSideEffectRequest(method: string, payload: NativePayload): boolean {
-    if (
-      method === 'rr.runFlow' ||
-      method === 'file.operation' ||
-      /^rr_v3\.(cancel|pause|resume)Run$/.test(method)
-    )
-      return true;
+    if (method === 'file.operation') return true;
     if (method !== 'browser.callTool') return false;
     const name = typeof payload?.name === 'string' ? payload.name : '';
-    return /(?:click|submit|delete|download|upload|create|close|navigate|fill|select|keyboard|paste|bookmark|storage_(?:set|delete)|dialog|userscript|proxy|record|rotate|post_to)/i.test(
+    return /(?:click|submit|delete|download|upload|create|close|navigate|fill|select|keyboard|paste|bookmark|storage_(?:set|delete)|dialog|userscript|proxy|record|rotate|post_to|javascript|computer|switch_tab)/i.test(
       name,
     );
   }
@@ -718,12 +720,6 @@ export class NativeMessagingHost {
     switch (messageType) {
       case 'call_tool':
         return 'browser.callTool';
-      case 'process_data':
-        return 'browser.processData';
-      case 'rr_list_published_flows':
-        return 'rr.listPublishedFlows';
-      case 'rr_run_flow':
-        return 'rr.runFlow';
       default:
         return messageType;
     }

@@ -951,27 +951,6 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
-    name: 'search_tabs_content',
-    description:
-      'Search the readable content of explicitly selected browser tabs using semantic similarity. Selected tabs are indexed on demand.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'The text or topic to search for.' },
-        tabIds: {
-          type: 'array',
-          items: { type: 'number' },
-          description: 'One to five tab IDs to search.',
-        },
-        limit: {
-          type: 'number',
-          description: 'Maximum number of matching tabs to return (default: 10, max: 20).',
-        },
-      },
-      required: ['query', 'tabIds'],
-    },
-  },
-  {
     name: TOOL_NAMES.BROWSER.PERFORMANCE_START_TRACE,
     description:
       'Starts a performance trace recording on the selected page. Optionally reloads the page and/or auto-stops after a short duration.',
@@ -1575,7 +1554,7 @@ export const TOOL_SCHEMAS: Tool[] = [
         formData: {
           type: 'object',
           description:
-            'Multipart/form-data descriptor. If provided, overrides body and builds FormData with optional file attachments. Shape: { fields?: Record<string,string|number|boolean>, files?: Array<{ name: string, fileUrl?: string, filePath?: string, base64Data?: string, filename?: string, contentType?: string }> }. Also supports a compact array form: [ [name, fileSpec, filename?], ... ] where fileSpec may be url:, file:, or base64:.',
+            'Multipart/form-data descriptor. If provided, overrides body and builds FormData with optional file attachments. Shape: { fields?: Record<string,string|number|boolean>, files?: Array<{ name: string, fileUrl?: string, base64Data?: string, filename?: string, contentType?: string }> }. Also supports a compact array form: [ [name, fileSpec, filename?], ... ] where fileSpec may be url: or base64:.',
         },
       },
       required: ['url'],

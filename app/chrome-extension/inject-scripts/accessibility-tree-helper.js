@@ -14,11 +14,11 @@
   const REF_MAP_LIMIT = 1000; // limit size of the ref map to keep payload small
 
   // Keep a weak map from ref id to elements
-  if (!window.__claudeElementMap) window.__claudeElementMap = {};
+  if (!window.__mcpElementMap) window.__mcpElementMap = {};
   // Keep recovery hints separately from the WeakRef. Framework re-renders can
   // detach the node while the ref is still in the caller's context.
-  if (!window.__claudeElementMeta) window.__claudeElementMeta = {};
-  if (!window.__claudeRefCounter) window.__claudeRefCounter = 0;
+  if (!window.__mcpElementMeta) window.__mcpElementMeta = {};
+  if (!window.__mcpRefCounter) window.__mcpRefCounter = 0;
 
   function cssEscape(value) {
     try {
@@ -683,7 +683,13 @@
     const dialogs = [];
     const overlays = [];
     for (const el of candidates) {
-      if (!(el instanceof Element) || el.id.startsWith('__rr_') || !isVisible(el)) continue;
+      if (
+        !(el instanceof Element) ||
+        el.id.startsWith('__mcp_') ||
+        el.id.startsWith('__element_marker') ||
+        !isVisible(el)
+      )
+        continue;
       const role = el.getAttribute('role') || '';
       const className = el.getAttribute('class') || '';
       const text = String(el.textContent || '')
@@ -783,15 +789,15 @@
       const role = inferRole(el);
       let label = inferLabel(el);
       let refId = null;
-      for (const k in window.__claudeElementMap) {
-        if (window.__claudeElementMap[k].deref && window.__claudeElementMap[k].deref() === el) {
+      for (const k in window.__mcpElementMap) {
+        if (window.__mcpElementMap[k].deref && window.__mcpElementMap[k].deref() === el) {
           refId = k;
           break;
         }
       }
       if (!refId) {
-        refId = `ref_${++window.__claudeRefCounter}`;
-        window.__claudeElementMap[refId] = new WeakRef(el);
+        refId = `ref_${++window.__mcpRefCounter}`;
+        window.__mcpElementMap[refId] = new WeakRef(el);
       }
       rememberRef(refId, el);
       const rect = /** @type {HTMLElement} */ (el).getBoundingClientRect();
@@ -897,9 +903,9 @@
       }
 
       if (root) traverse(root, 0, cfg, out, refMap, state);
-      for (const k in window.__claudeElementMap) {
-        if (!window.__claudeElementMap[k].deref || !window.__claudeElementMap[k].deref())
-          delete window.__claudeElementMap[k];
+      for (const k in window.__mcpElementMap) {
+        if (!window.__mcpElementMap[k].deref || !window.__mcpElementMap[k].deref())
+          delete window.__mcpElementMap[k];
       }
       const pageContent = out
         .filter((line) => !/^\s*- generic \[ref=ref_\d+\]$/.test(line))
@@ -1146,7 +1152,7 @@
       };
     }
     const target = snapshot.guards.get(String(ref || ''));
-    const weak = window.__claudeElementMap?.[String(ref || '')];
+    const weak = window.__mcpElementMap?.[String(ref || '')];
     const current = weak && typeof weak.deref === 'function' ? weak.deref() : null;
     if (!target || current !== target.element || !target.element.isConnected) {
       return { success: false, error: 'Action snapshot target changed; read a fresh snapshot.' };
@@ -1197,9 +1203,9 @@
 
   function rememberRef(refId, el, selector, selectorType = 'css') {
     if (!refId || !el || !(el instanceof Element)) return;
-    if (!window.__claudeElementMeta) window.__claudeElementMeta = {};
-    const current = window.__claudeElementMeta[refId] || {};
-    window.__claudeElementMeta[refId] = {
+    if (!window.__mcpElementMeta) window.__mcpElementMeta = {};
+    const current = window.__mcpElementMeta[refId] || {};
+    window.__mcpElementMeta[refId] = {
       ...current,
       selector: selector || current.selector || generateSelector(el),
       selectorType: selectorType || current.selectorType || 'css',
@@ -1213,7 +1219,7 @@
   }
 
   function resolveRef(ref, recoveryHint) {
-    const map = window.__claudeElementMap || {};
+    const map = window.__mcpElementMap || {};
     const weak = map[ref];
     const current = weak && typeof weak.deref === 'function' ? weak.deref() : null;
     if (current && current instanceof Element && current.isConnected) {
@@ -1221,7 +1227,7 @@
       return current;
     }
 
-    const meta = (window.__claudeElementMeta || {})[ref] || {};
+    const meta = (window.__mcpElementMeta || {})[ref] || {};
     const selector = String(recoveryHint?.selector || meta.selector || '').trim();
     const selectorType =
       recoveryHint?.selectorType === 'xpath' || meta.selectorType === 'xpath' ? 'xpath' : 'css';
@@ -1241,17 +1247,17 @@
 
   function ensureRefForElement(el) {
     if (!el || !(el instanceof Element)) return null;
-    if (!window.__claudeElementMap) window.__claudeElementMap = {};
-    if (!window.__claudeRefCounter) window.__claudeRefCounter = 0;
-    for (const k in window.__claudeElementMap) {
-      const weak = window.__claudeElementMap[k];
+    if (!window.__mcpElementMap) window.__mcpElementMap = {};
+    if (!window.__mcpRefCounter) window.__mcpRefCounter = 0;
+    for (const k in window.__mcpElementMap) {
+      const weak = window.__mcpElementMap[k];
       if (weak && typeof weak.deref === 'function' && weak.deref() === el) {
         rememberRef(k, el);
         return k;
       }
     }
-    const refId = `ref_${++window.__claudeRefCounter}`;
-    window.__claudeElementMap[refId] = new WeakRef(el);
+    const refId = `ref_${++window.__mcpRefCounter}`;
+    window.__mcpElementMap[refId] = new WeakRef(el);
     rememberRef(refId, el);
     return refId;
   }
@@ -1408,7 +1414,7 @@
       const reqId = `hover_ref_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const listener = (ev) => {
         const data = ev?.data;
-        if (!data || data.type !== 'rr-bridge-hover-ref-result' || data.reqId !== reqId) return;
+        if (!data || data.type !== 'mcp-bridge-hover-ref-result' || data.reqId !== reqId) return;
         window.removeEventListener('message', listener, true);
         resolve(data.result);
       };
@@ -1419,7 +1425,7 @@
       }, 1500);
       for (const frame of frames) {
         try {
-          frame.contentWindow?.postMessage({ type: 'rr-bridge-hover-ref', reqId, ref }, '*');
+          frame.contentWindow?.postMessage({ type: 'mcp-bridge-hover-ref', reqId, ref }, '*');
         } catch {}
       }
     });
@@ -1436,275 +1442,10 @@
         sendResponse({ status: 'pong' });
         return false;
       }
-      if (request && request.action === 'rr_overlay') {
-        try {
-          const cmd = request.cmd || 'init';
-          let root = document.getElementById('__rr_overlay_root');
-          if (!root) {
-            root = document.createElement('div');
-            root.id = '__rr_overlay_root';
-            Object.assign(root.style, {
-              position: 'fixed',
-              right: '8px',
-              bottom: '8px',
-              zIndex: 2_147_483_647,
-              maxWidth: '40vw',
-              maxHeight: '40vh',
-              overflow: 'auto',
-              background: 'rgba(0,0,0,0.6)',
-              color: '#fff',
-              fontFamily:
-                'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-              fontSize: '12px',
-              padding: '8px',
-              borderRadius: '6px',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-            });
-            const title = document.createElement('div');
-            title.textContent = 'Record-Replay run log';
-            Object.assign(title.style, { fontWeight: 'bold', marginBottom: '6px' });
-            const body = document.createElement('div');
-            body.id = '__rr_overlay_body';
-            root.appendChild(title);
-            root.appendChild(body);
-            document.documentElement.appendChild(root);
-          }
-          const body = document.getElementById('__rr_overlay_body');
-          if (cmd === 'append' && body) {
-            const line = document.createElement('div');
-            line.textContent = String(request.text || '');
-            body.appendChild(line);
-            body.scrollTop = body.scrollHeight;
-          }
-          if (cmd === 'done' && root) {
-            root.style.opacity = '0.5';
-          }
-          sendResponse({ success: true });
-          return true;
-        } catch (e) {
-          sendResponse({ success: false, error: String(e && e.message ? e.message : e) });
-          return true;
-        }
-      }
+      
       // Element picker: start a temporary overlay to let user pick an element
-      if (request && request.action === 'rr_picker_start') {
-        try {
-          // state
-          const state = { active: true };
-          const hostId = '__rr_picker_host__';
-          let host = document.getElementById(hostId);
-          if (host) host.remove();
-          host = document.createElement('div');
-          host.id = hostId;
-          const previousCursor = document.documentElement.style.cursor;
-          Object.assign(host.style, {
-            position: 'fixed',
-            inset: '0',
-            zIndex: 2147483646,
-            pointerEvents: 'none',
-            background: 'rgba(0,0,0,0.0)',
-          });
-          document.documentElement.style.cursor = 'crosshair';
-          const box = document.createElement('div');
-          Object.assign(box.style, {
-            position: 'fixed',
-            border: '2px solid #3b82f6',
-            background: 'rgba(59,130,246,0.15)',
-            pointerEvents: 'none',
-          });
-          const tip = document.createElement('div');
-          tip.textContent = 'Click to pick an element (Esc to cancel)';
-          Object.assign(tip.style, {
-            position: 'fixed',
-            top: '10px',
-            left: '10px',
-            background: 'rgba(0,0,0,0.7)',
-            color: '#fff',
-            padding: '6px 10px',
-            borderRadius: '6px',
-            fontSize: '12px',
-            fontFamily: 'system-ui,-apple-system,Segoe UI,Roboto,Arial',
-          });
-          host.appendChild(box);
-          host.appendChild(tip);
-          document.documentElement.appendChild(host);
-
-          const cleanup = () => {
-            try {
-              host.remove();
-            } catch {}
-            document.documentElement.style.cursor = previousCursor;
-            try {
-              document.removeEventListener('mousemove', onMove, true);
-            } catch {}
-            try {
-              document.removeEventListener('click', onClick, true);
-            } catch {}
-            try {
-              document.removeEventListener('keydown', onKey, true);
-            } catch {}
-            state.active = false;
-          };
-
-          const onMove = (e) => {
-            if (!state.active) return;
-            const el = e.target instanceof Element ? e.target : null;
-            if (!el) return;
-            try {
-              const r = el.getBoundingClientRect();
-              Object.assign(box.style, {
-                left: `${Math.round(r.left)}px`,
-                top: `${Math.round(r.top)}px`,
-                width: `${Math.round(Math.max(0, r.width))}px`,
-                height: `${Math.round(Math.max(0, r.height))}px`,
-                display: r.width > 0 && r.height > 0 ? 'block' : 'none',
-              });
-            } catch {}
-          };
-          const uniqueClassSelector = (node) => {
-            try {
-              const classes = Array.from(node.classList || []).filter(
-                (c) => c && /^[a-zA-Z0-9_-]+$/.test(c),
-              );
-              for (const cls of classes) {
-                const sel = `.${cssEscape(cls)}`;
-                if (document.querySelectorAll(sel).length === 1) return sel;
-              }
-              const tag = node.tagName ? node.tagName.toLowerCase() : '';
-              for (const cls of classes) {
-                const sel = `${tag}.${cssEscape(cls)}`;
-                if (document.querySelectorAll(sel).length === 1) return sel;
-              }
-              for (let i = 0; i < Math.min(classes.length, 3); i++) {
-                for (let j = i + 1; j < Math.min(classes.length, 3); j++) {
-                  const sel = `.${cssEscape(classes[i])}.${cssEscape(classes[j])}`;
-                  if (document.querySelectorAll(sel).length === 1) return sel;
-                }
-              }
-            } catch {}
-            return '';
-          };
-          const computeCandidates = (el) => {
-            const cands = [];
-            // css by id / class / short path
-            if (el.id) {
-              const idSel = `#${cssEscape(el.id)}`;
-              if (document.querySelectorAll(idSel).length === 1)
-                cands.push({ type: 'css', value: idSel });
-            }
-            const classSel = uniqueClassSelector(el);
-            if (classSel) cands.push({ type: 'css', value: classSel });
-            // data-* and name
-            for (const attr of ['data-testid', 'data-cy', 'name']) {
-              const val = el.getAttribute(attr);
-              if (val) {
-                const s = `[${attr}="${cssEscape(val)}"]`;
-                if (document.querySelectorAll(s).length === 1)
-                  cands.push({ type: 'attr', value: s });
-              }
-            }
-            // aria
-            const aria = el.getAttribute && el.getAttribute('aria-label');
-            if (aria) cands.push({ type: 'aria', value: `textbox[name=${aria}]` });
-            // text for clickable
-            const tag = (el.tagName || '').toLowerCase();
-            if (['button', 'a', 'summary'].includes(tag)) {
-              const text = (el.textContent || '').trim();
-              if (text) cands.push({ type: 'text', value: text.substring(0, 64) });
-            }
-            // fallback path selector
-            const gen = (node) => {
-              if (!(node instanceof Element)) return '';
-              let path = '';
-              let current = node;
-              while (
-                current &&
-                current.nodeType === Node.ELEMENT_NODE &&
-                current.tagName !== 'BODY'
-              ) {
-                let sel = current.tagName.toLowerCase();
-                const parent = current.parentElement;
-                if (parent) {
-                  const siblings = Array.from(parent.children).filter(
-                    (child) => child.tagName === current.tagName,
-                  );
-                  if (siblings.length > 1) {
-                    const index = siblings.indexOf(current) + 1;
-                    sel += `:nth-of-type(${index})`;
-                  }
-                }
-                path = path ? `${sel} > ${path}` : sel;
-                current = parent;
-              }
-              return path ? `body > ${path}` : 'body';
-            };
-            const pathSel = gen(el);
-            if (pathSel) cands.push({ type: 'css', value: pathSel });
-            return cands;
-          };
-          const onClick = (e) => {
-            if (!state.active) return;
-            e.preventDefault();
-            e.stopPropagation();
-            const el = e.target instanceof Element ? e.target : null;
-            if (!el) {
-              cleanup();
-              sendResponse({ success: false, error: 'no element' });
-              return true;
-            }
-            // create ref
-            try {
-              if (!window.__claudeElementMap) window.__claudeElementMap = {};
-              if (!window.__claudeRefCounter) window.__claudeRefCounter = 0;
-            } catch {}
-            let refId = null;
-            try {
-              for (const k in window.__claudeElementMap) {
-                if (
-                  window.__claudeElementMap[k].deref &&
-                  window.__claudeElementMap[k].deref() === el
-                ) {
-                  refId = k;
-                  break;
-                }
-              }
-              if (!refId) {
-                refId = `ref_${++window.__claudeRefCounter}`;
-                window.__claudeElementMap[refId] = new WeakRef(el);
-              }
-              rememberRef(refId, el);
-            } catch {}
-            const cands = computeCandidates(el);
-            cleanup();
-            sendResponse({ success: true, ref: refId, candidates: cands });
-            return true;
-          };
-          const onKey = (e) => {
-            if (e.key === 'Escape') {
-              cleanup();
-              sendResponse({ success: false, cancelled: true });
-            }
-          };
-          document.addEventListener('mousemove', onMove, true);
-          document.addEventListener('click', onClick, true);
-          document.addEventListener('keydown', onKey, true);
-          return true; // async
-        } catch (e) {
-          sendResponse({ success: false, error: String(e && e.message ? e.message : e) });
-          return true;
-        }
-      }
-      if (request && request.action === 'rr_picker_stop') {
-        try {
-          const host = document.getElementById('__rr_picker_host__');
-          if (host) host.remove();
-          sendResponse({ success: true });
-          return true;
-        } catch (e) {
-          sendResponse({ success: false, error: String(e && e.message ? e.message : e) });
-          return true;
-        }
-      }
+      
+      
       if (request && request.action === 'waitForPageSettled') {
         waitForPageSettled(
           Number.isFinite(Number(request.timeoutMs)) ? Number(request.timeoutMs) : 700,
@@ -2022,7 +1763,7 @@
                     const data = ev && ev.data;
                     if (
                       !data ||
-                      data.type !== 'rr-bridge-ensure-ref-result' ||
+                      data.type !== 'mcp-bridge-ensure-ref-result' ||
                       data.reqId !== reqId
                     )
                       return;
@@ -2099,7 +1840,7 @@
                 }
                 cw.postMessage(
                   {
-                    type: 'rr-bridge-ensure-ref',
+                    type: 'mcp-bridge-ensure-ref',
                     reqId,
                     selector: innerSel,
                     useText: !!request.useText,
@@ -2250,19 +1991,19 @@
             return true;
           }
           let refId = null;
-          for (const k in window.__claudeElementMap) {
-            if (window.__claudeElementMap[k].deref && window.__claudeElementMap[k].deref() === el) {
+          for (const k in window.__mcpElementMap) {
+            if (window.__mcpElementMap[k].deref && window.__mcpElementMap[k].deref() === el) {
               refId = k;
               break;
             }
           }
           if (!refId) {
-            refId = `ref_${++window.__claudeRefCounter}`;
-            window.__claudeElementMap[refId] = new WeakRef(el);
+            refId = `ref_${++window.__mcpRefCounter}`;
+            window.__mcpElementMap[refId] = new WeakRef(el);
           }
           rememberRef(refId, el, sel, isXPath ? 'xpath' : 'css');
           if (request.highlight) {
-            const highlightId = '__rr_picker_validation_highlight__';
+            const highlightId = '__mcp_validation_highlight__';
             document.getElementById(highlightId)?.remove();
             el.scrollIntoView({ block: 'center', inline: 'center' });
             const rect = /** @type {HTMLElement} */ (el).getBoundingClientRect();
@@ -2340,143 +2081,7 @@
           return true;
         }
       }
-      if (request && request.action === 'collectVariables') {
-        try {
-          let vars = Array.isArray(request.variables) ? request.variables : [];
-          if ((!vars || vars.length === 0) && request.payload) {
-            try {
-              const p = JSON.parse(String(request.payload || '{}'));
-              if (Array.isArray(p.variables)) vars = p.variables;
-            } catch {}
-          }
-          const useOverlay = request.useOverlay !== false; // default true
-          const values = {};
-          if (!useOverlay) {
-            for (const v of vars) {
-              const key = String(v && v.key ? v.key : '');
-              if (!key) continue;
-              const label = v.label || key;
-              const def = v.default || '';
-              const promptText = `Enter parameter ${label} (${key})`;
-              let val = window.prompt(promptText, def);
-              if (typeof val !== 'string') val = def;
-              values[key] = val;
-            }
-            sendResponse({ success: true, values });
-            return true;
-          }
-          // Build overlay form
-          const hostId = '__rr_var_overlay__';
-          let host = document.getElementById(hostId);
-          if (host) host.remove();
-          host = document.createElement('div');
-          host.id = hostId;
-          Object.assign(host.style, {
-            position: 'fixed',
-            inset: '0',
-            background: 'rgba(0,0,0,0.35)',
-            zIndex: 2147483646,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          });
-          const panel = document.createElement('div');
-          Object.assign(panel.style, {
-            background: '#fff',
-            borderRadius: '8px',
-            width: 'min(520px, 96vw)',
-            maxHeight: '80vh',
-            overflow: 'auto',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
-            padding: '16px',
-            fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
-          });
-          const title = document.createElement('div');
-          title.textContent = 'Enter replay parameters';
-          Object.assign(title.style, { fontSize: '16px', fontWeight: '600', marginBottom: '12px' });
-          const form = document.createElement('form');
-          for (const v of vars) {
-            const row = document.createElement('div');
-            Object.assign(row.style, { marginBottom: '10px' });
-            const label = document.createElement('label');
-            label.textContent = `${v.label || v.key}${v.sensitive ? ' (sensitive)' : ''}`;
-            Object.assign(label.style, {
-              display: 'block',
-              marginBottom: '6px',
-              fontWeight: '500',
-            });
-            const input = document.createElement('input');
-            input.type = v.sensitive ? 'password' : 'text';
-            input.name = String(v.key);
-            input.value = String(v.default || '');
-            Object.assign(input.style, {
-              width: '100%',
-              boxSizing: 'border-box',
-              padding: '8px 10px',
-              border: '1px solid #d0d7de',
-              borderRadius: '6px',
-              outline: 'none',
-            });
-            row.appendChild(label);
-            row.appendChild(input);
-            form.appendChild(row);
-          }
-          const actions = document.createElement('div');
-          Object.assign(actions.style, { display: 'flex', gap: '8px', marginTop: '12px' });
-          const ok = document.createElement('button');
-          ok.type = 'submit';
-          ok.textContent = 'OK';
-          Object.assign(ok.style, {
-            background: '#0969da',
-            color: '#fff',
-            border: 'none',
-            padding: '8px 16px',
-            borderRadius: '6px',
-            cursor: 'pointer',
-          });
-          const cancel = document.createElement('button');
-          cancel.type = 'button';
-          cancel.textContent = 'Cancel';
-          Object.assign(cancel.style, {
-            background: '#f3f4f6',
-            color: '#111',
-            border: '1px solid #d0d7de',
-            padding: '8px 16px',
-            borderRadius: '6px',
-            cursor: 'pointer',
-          });
-          actions.appendChild(ok);
-          actions.appendChild(cancel);
-          panel.appendChild(title);
-          panel.appendChild(form);
-          panel.appendChild(actions);
-          host.appendChild(panel);
-          document.documentElement.appendChild(host);
-
-          const cleanup = () => {
-            try {
-              host.remove();
-            } catch {}
-          };
-          cancel.onclick = () => {
-            cleanup();
-            sendResponse({ success: false, cancelled: true });
-          };
-          form.onsubmit = (e) => {
-            e.preventDefault();
-            for (const v of vars) {
-              const el = form.querySelector(`input[name="${cssEscape(String(v.key))}"]`);
-              if (el) values[v.key] = /** @type {HTMLInputElement} */ (el).value;
-            }
-            cleanup();
-            sendResponse({ success: true, values });
-          };
-          return true; // async
-        } catch (e) {
-          sendResponse({ success: false, error: String(e && e.message ? e.message : e) });
-          return true;
-        }
-      }
+      
       if (request && request.action === 'resolveRef') {
         const ref = request.ref;
         try {
@@ -2497,7 +2102,7 @@
               y: Math.round(rect.top + rect.height / 2),
             },
             point: getActionPoint(el),
-            selector: (window.__claudeElementMeta || {})[ref]?.selector || generateSelector(el),
+            selector: (window.__mcpElementMeta || {})[ref]?.selector || generateSelector(el),
             legacySelector: (function () {
               // Simple selector generation inline to avoid duplication
               const generateSelector = function (node) {
@@ -2574,7 +2179,7 @@
             sendResponse({ success: false, error: 'ref and fingerprint are required' });
             return true;
           }
-          const map = window.__claudeElementMap;
+          const map = window.__mcpElementMap;
           const weak = map && map[ref];
           const el = weak && typeof weak.deref === 'function' ? weak.deref() : null;
           if (!el || !(el instanceof Element)) {
@@ -2654,18 +2259,18 @@
         try {
           const data = ev && ev.data;
           // Handle hover-ref bridge requests from parent frame
-          if (data && data.type === 'rr-bridge-hover-ref') {
+          if (data && data.type === 'mcp-bridge-hover-ref') {
             handleHoverForRef(data.ref)
               .then((result) => {
                 ev.source?.postMessage(
-                  { type: 'rr-bridge-hover-ref-result', reqId: data.reqId, result },
+                  { type: 'mcp-bridge-hover-ref-result', reqId: data.reqId, result },
                   '*',
                 );
               })
               .catch((error) => {
                 ev.source?.postMessage(
                   {
-                    type: 'rr-bridge-hover-ref-result',
+                    type: 'mcp-bridge-hover-ref-result',
                     reqId: data.reqId,
                     result: { success: false, error: error?.message || String(error) },
                   },
@@ -2674,13 +2279,13 @@
               });
             return;
           }
-          if (!data || data.type !== 'rr-bridge-ensure-ref') return;
+          if (!data || data.type !== 'mcp-bridge-ensure-ref') return;
           const { reqId, selector, useText, isXPath, tagName } = data || {};
           const respond = (payload) => {
             try {
               ev.source &&
                 ev.source.postMessage(
-                  { type: 'rr-bridge-ensure-ref-result', reqId, ...payload },
+                  { type: 'mcp-bridge-ensure-ref-result', reqId, ...payload },
                   '*',
                 );
             } catch {}
@@ -2847,19 +2452,19 @@
                 } catch (_) {}
               }
             }
-            if (!window.__claudeElementMap) window.__claudeElementMap = {};
-            if (!window.__claudeRefCounter) window.__claudeRefCounter = 0;
+            if (!window.__mcpElementMap) window.__mcpElementMap = {};
+            if (!window.__mcpRefCounter) window.__mcpRefCounter = 0;
             let refId = null;
-            for (const k in window.__claudeElementMap) {
-              const w = window.__claudeElementMap[k];
+            for (const k in window.__mcpElementMap) {
+              const w = window.__mcpElementMap[k];
               if (w && typeof w.deref === 'function' && w.deref && w.deref() === el) {
                 refId = k;
                 break;
               }
             }
             if (!refId) {
-              refId = `ref_${++window.__claudeRefCounter}`;
-              window.__claudeElementMap[refId] = new WeakRef(el);
+              refId = `ref_${++window.__mcpRefCounter}`;
+              window.__mcpElementMap[refId] = new WeakRef(el);
             }
             rememberRef(refId, el, sel, isXPath ? 'xpath' : 'css');
             const rect = el.getBoundingClientRect();

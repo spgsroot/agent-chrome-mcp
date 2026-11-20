@@ -4,11 +4,9 @@ import { TOOL_SCHEMAS, TOOL_SCHEMAS_ZH } from '@ethanwilkins/chrome-mcp-shared-2
 describe('MCP tool catalog', () => {
   it('exposes maintained tools and omits retired aliases', () => {
     const names = TOOL_SCHEMAS.map((tool) => tool.name);
-    const search = TOOL_SCHEMAS.find((tool) => tool.name === 'search_tabs_content');
 
     expect(names).toEqual(
       expect.arrayContaining([
-        'search_tabs_content',
         'chrome_cookie_get',
         'chrome_cookie_set',
         'chrome_cookie_delete',
@@ -29,7 +27,6 @@ describe('MCP tool catalog', () => {
         'chrome_storage_delete',
       ]),
     );
-    expect(search?.inputSchema.required).toEqual(expect.arrayContaining(['query', 'tabIds']));
     const collector = TOOL_SCHEMAS.find((tool) => tool.name === 'collect_virtual_list');
     const crawlLinks = TOOL_SCHEMAS.find((tool) => tool.name === 'chrome_crawl_links');
     const extractThread = TOOL_SCHEMAS.find((tool) => tool.name === 'chrome_extract_thread');

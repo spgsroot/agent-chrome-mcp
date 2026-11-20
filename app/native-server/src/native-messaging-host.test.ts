@@ -79,7 +79,7 @@ describe('NativeMessagingHost lifecycle', () => {
     jest.spyOn(host as any, 'writeNativeMessage').mockResolvedValue(undefined);
     jest.spyOn(host, 'sendMessage').mockImplementation(() => undefined);
     const promises = Array.from({ length: 32 }, (_, index) =>
-      host.sendRequestToExtensionAndWait({ index }, 'process_data', 30_000),
+      host.sendRequestToExtensionAndWait({ index }, 'call_tool', 30_000),
     );
     const requestIds = [...(host as any).pendingRequests.keys()];
     requestIds.forEach((requestId, index) =>
@@ -139,7 +139,7 @@ describe('NativeMessagingHost lifecycle', () => {
 
     const pending = host.sendRequestToExtensionAndWait(
       { value: BigInt(1) },
-      'process_data',
+      'call_tool',
       30_000,
     );
 

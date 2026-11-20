@@ -8,8 +8,8 @@
   window.__WAIT_HELPER_INITIALIZED__ = true;
 
   // Ensure ref mapping infra exists (compatible with accessibility-tree-helper.js)
-  if (!window.__claudeElementMap) window.__claudeElementMap = {};
-  if (!window.__claudeRefCounter) window.__claudeRefCounter = 0;
+  if (!window.__mcpElementMap) window.__mcpElementMap = {};
+  if (!window.__mcpRefCounter) window.__mcpRefCounter = 0;
 
   function isVisible(el) {
     try {
@@ -79,12 +79,12 @@
 
   function ensureRefForElement(el) {
     // Try to reuse an existing ref
-    for (const k in window.__claudeElementMap) {
-      const weak = window.__claudeElementMap[k];
+    for (const k in window.__mcpElementMap) {
+      const weak = window.__mcpElementMap[k];
       if (weak && typeof weak.deref === 'function' && weak.deref() === el) return k;
     }
-    const refId = `ref_${++window.__claudeRefCounter}`;
-    window.__claudeElementMap[refId] = new WeakRef(el);
+    const refId = `ref_${++window.__mcpRefCounter}`;
+    window.__mcpElementMap[refId] = new WeakRef(el);
     return refId;
   }
 

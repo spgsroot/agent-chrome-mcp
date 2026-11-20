@@ -21,7 +21,6 @@ const browserToolNames = [
   'cookieGetTool',
   'cookieSetTool',
   'cookieDeleteTool',
-  'searchTabsContentTool',
   'screenshotTool',
   'webFetcherTool',
   'getInteractiveElementsTool',
@@ -153,8 +152,6 @@ function operationDetail(param: ToolCallParam): string {
       return 'Write page storage';
     case 'chrome_storage_delete':
       return 'Delete page storage';
-    case 'search_tabs_content':
-      return `Search: ${compact(args.query || args.text) || 'tab content'}`;
     case 'chrome_screenshot':
       return args.fullPage ? 'Screenshot full page' : `Screenshot: ${target(args)}`;
     case 'chrome_close_tabs':
@@ -353,7 +350,6 @@ async function showOperation(param: ToolCallParam, state: 'Running' | 'Done' | '
           chrome_storage_get: 'Read page storage',
           chrome_storage_set: 'Write page storage',
           chrome_storage_delete: 'Delete page storage',
-          search_tabs_content: 'Search content',
           chrome_screenshot: 'Screenshot',
           chrome_close_tabs: 'Close tabs',
           chrome_switch_tab: 'Switch tab',
@@ -395,7 +391,7 @@ async function showOperation(param: ToolCallParam, state: 'Running' | 'Done' | '
           target = selector ? document.querySelector(String(selector)) : null;
         } catch {}
         if (!target && ref) {
-          const map = (window as any).__claudeElementMap;
+          const map = (window as any).__mcpElementMap;
           const value = map instanceof Map ? map.get(ref) : map?.[ref];
           target =
             value instanceof Element

@@ -2,16 +2,9 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const MAX_EXTENSION_ZIP_BYTES = 7_500_000;
+export const MAX_EXTENSION_ZIP_BYTES = 4_000_000;
 
-export const REQUIRED_EXTENSION_FILES = [
-  'libs/ort.min.js',
-  'workers/similarity.worker.js',
-  'workers/ort-wasm-simd-threaded.mjs',
-  'workers/ort-wasm-simd-threaded.wasm',
-  'workers/simd_math.js',
-  'workers/simd_math_bg.wasm',
-];
+export const REQUIRED_EXTENSION_FILES = ['manifest.json', 'background.js', 'popup.html'];
 
 function readZipEntryNames(archive) {
   const minOffset = Math.max(0, archive.length - 22 - 0xffff);
@@ -85,7 +78,7 @@ async function main() {
   const zipPath = archives.sort((a, b) => b.modifiedAt - a.modifiedAt)[0].path;
   const result = await checkExtensionPackage({ zipPath });
   console.log(
-    `Extension package verified: ${(result.zipSizeBytes / 1_000_000).toFixed(2)} MB; required WASM assets present; JSEP assets absent.`,
+    `Extension package verified: ${(result.zipSizeBytes / 1_000_000).toFixed(2)} MB; runtime entrypoints present.`,
   );
 }
 

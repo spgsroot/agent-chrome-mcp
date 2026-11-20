@@ -4,6 +4,9 @@ import Server, { type ActiveMcpRequest, type McpRequestRecord } from './index';
 import { ERROR_MESSAGES, isAllowedCorsOrigin, MCP_API_KEY_ENV } from '../constant';
 import nativeMessagingHostInstance from '../native-messaging-host';
 
+const EXTENSION_ORIGIN = 'chrome-extension://mcp-test-extension';
+const STDIO_ORIGIN = 'chrome-extension://mcp-stdio';
+
 interface JsonRpcResponse {
   jsonrpc?: string;
   result: { tools?: unknown; [key: string]: unknown };
@@ -62,7 +65,7 @@ describe('Server tests', () => {
   test('GET /status should return a diagnosable status', async () => {
     const response = await supertest(Server.getInstance().server)
       .get('/status')
-      .set('Origin', 'http://127.0.0.1:1420')
+      .set('Origin', EXTENSION_ORIGIN)
       .expect(200);
 
     expect(response.body.server.version).toEqual(expect.any(String));
@@ -102,7 +105,7 @@ describe('Server tests', () => {
     try {
       const response = await supertest(Server.getInstance().server)
         .post('/mcp')
-        .set('Origin', 'http://127.0.0.1:1420')
+        .set('Origin', EXTENSION_ORIGIN)
         .set('Accept', 'application/json, text/event-stream')
         .send({
           jsonrpc: '2.0',
@@ -120,7 +123,7 @@ describe('Server tests', () => {
       expect(sessionId).toEqual(expect.any(String));
       const status = await supertest(Server.getInstance().server)
         .get('/status')
-        .set('Origin', 'http://127.0.0.1:1420')
+        .set('Origin', EXTENSION_ORIGIN)
         .expect(200);
       expect(status.body.mcp.clients).toEqual(
         expect.arrayContaining([
@@ -131,7 +134,7 @@ describe('Server tests', () => {
       if (sessionId) {
         await supertest(Server.getInstance().server)
           .delete('/mcp')
-          .set('Origin', 'http://127.0.0.1:1420')
+          .set('Origin', EXTENSION_ORIGIN)
           .set('Mcp-Session-Id', sessionId);
       }
       Server.serviceEnabled = false;
@@ -159,7 +162,7 @@ describe('Server tests', () => {
     try {
       const initialized = await supertest(Server.getInstance().server)
         .post('/mcp')
-        .set('Origin', 'http://127.0.0.1:1420')
+        .set('Origin', EXTENSION_ORIGIN)
         .set('Accept', 'application/json, text/event-stream')
         .send({
           jsonrpc: '2.0',
@@ -177,7 +180,7 @@ describe('Server tests', () => {
 
       await supertest(Server.getInstance().server)
         .post('/mcp')
-        .set('Origin', 'http://127.0.0.1:1420')
+        .set('Origin', EXTENSION_ORIGIN)
         .set('Accept', 'application/json, text/event-stream')
         .set('Mcp-Session-Id', sessionId!)
         .send({ jsonrpc: '2.0', method: 'notifications/initialized' })
@@ -185,7 +188,7 @@ describe('Server tests', () => {
 
       const listed = await supertest(Server.getInstance().server)
         .post('/mcp')
-        .set('Origin', 'http://127.0.0.1:1420')
+        .set('Origin', EXTENSION_ORIGIN)
         .set('Accept', 'application/json, text/event-stream')
         .set('Mcp-Session-Id', sessionId!)
         .send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
@@ -196,7 +199,7 @@ describe('Server tests', () => {
 
       const called = await supertest(Server.getInstance().server)
         .post('/mcp')
-        .set('Origin', 'http://127.0.0.1:1420')
+        .set('Origin', EXTENSION_ORIGIN)
         .set('Accept', 'application/json, text/event-stream')
         .set('Mcp-Session-Id', sessionId!)
         .send({
@@ -225,7 +228,7 @@ describe('Server tests', () => {
       if (sessionId) {
         await supertest(Server.getInstance().server)
           .delete('/mcp')
-          .set('Origin', 'http://127.0.0.1:1420')
+          .set('Origin', EXTENSION_ORIGIN)
           .set('Mcp-Session-Id', sessionId);
       }
       connected.mockRestore();
@@ -240,7 +243,7 @@ describe('Server tests', () => {
     try {
       const response = await supertest(Server.getInstance().server)
         .post('/mcp')
-        .set('Origin', 'chrome-extension://mcp-stdio')
+        .set('Origin', STDIO_ORIGIN)
         .set('Accept', 'application/json, text/event-stream')
         .send({
           jsonrpc: '2.0',
@@ -257,7 +260,7 @@ describe('Server tests', () => {
       sessionId = response.headers['mcp-session-id'];
       const status = await supertest(Server.getInstance().server)
         .get('/status')
-        .set('Origin', 'http://127.0.0.1:1420')
+        .set('Origin', EXTENSION_ORIGIN)
         .expect(200);
       expect(status.body.mcp.clients).toEqual(
         expect.arrayContaining([
@@ -268,7 +271,7 @@ describe('Server tests', () => {
       if (sessionId) {
         await supertest(Server.getInstance().server)
           .delete('/mcp')
-          .set('Origin', 'chrome-extension://mcp-stdio')
+          .set('Origin', STDIO_ORIGIN)
           .set('Mcp-Session-Id', sessionId);
       }
       Server.serviceEnabled = false;
@@ -280,7 +283,7 @@ describe('Server tests', () => {
     try {
       const response = await supertest(Server.getInstance().server)
         .post('/mcp-new')
-        .set('Origin', 'http://127.0.0.1:1420')
+        .set('Origin', EXTENSION_ORIGIN)
         .set('MCP-Protocol-Version', '2026-07-28')
         .set('Mcp-Method', 'tools/list')
         .set('Accept', 'application/json, text/event-stream')
@@ -307,7 +310,7 @@ describe('Server tests', () => {
 
       const status = await supertest(Server.getInstance().server)
         .get('/status')
-        .set('Origin', 'http://127.0.0.1:1420')
+        .set('Origin', EXTENSION_ORIGIN)
         .expect(200);
       expect(status.body.mcp.activeSessions).toBe(0);
       expect(status.body.mcp.stateless).toMatchObject({
@@ -347,7 +350,7 @@ describe('Server tests', () => {
     try {
       const status = await supertest(Server.getInstance().server)
         .get('/status')
-        .set('Origin', 'http://127.0.0.1:1420')
+        .set('Origin', EXTENSION_ORIGIN)
         .expect(200);
       expect(status.body.mcp.stateless.requests).toEqual([
         expect.objectContaining({
@@ -362,8 +365,8 @@ describe('Server tests', () => {
       ]);
 
       await supertest(Server.getInstance().server)
-        .post('/__chrome_mcp_bridge/mcp-new/requests/request-under-test/cancel')
-        .set('Origin', 'http://127.0.0.1:1420')
+        .post('/__chrome_mcp_bridge/requests/request-under-test/cancel')
+        .set('Origin', EXTENSION_ORIGIN)
         .expect(202)
         .expect({ status: 'cancel_requested', requestId: 'request-under-test' });
       expect(cancelCalls).toBe(1);
@@ -455,14 +458,14 @@ describe('Server tests', () => {
     try {
       const response = await supertest(Server.getInstance().server)
         .post('/mcp')
-        .set('Origin', 'http://127.0.0.1:1420')
+        .set('Origin', EXTENSION_ORIGIN)
         .send({ jsonrpc: '2.0', id: 99, method: 'tools/call', params: { name: 'chrome_wait' } })
         .expect(400);
 
       expect(response.body.error).toBe(ERROR_MESSAGES.INVALID_MCP_REQUEST);
       const status = await supertest(Server.getInstance().server)
         .get('/status')
-        .set('Origin', 'http://127.0.0.1:1420')
+        .set('Origin', EXTENSION_ORIGIN)
         .expect(200);
       expect(status.body.mcp.recentRequests[0]).toMatchObject({
         method: 'tools/call',
@@ -476,21 +479,84 @@ describe('Server tests', () => {
     }
   });
 
-  test('Agent settings allow cross-origin PUT saves', async () => {
-    const response = await supertest(Server.getInstance().server)
-      .options('/agent/settings/deepseek')
-      .set('Origin', 'chrome-extension://test')
-      .set('Access-Control-Request-Method', 'PUT')
-      .expect(204);
-
-    expect(response.headers['access-control-allow-methods']).toContain('PUT');
-  });
-
-  test('CORS rejects a forged local Origin', () => {
-    expect(isAllowedCorsOrigin('http://127.0.0.1:5173')).toBe(true);
+  test('CORS rejects implicit loopback origins and accepts extension origins', () => {
+    expect(isAllowedCorsOrigin('http://127.0.0.1:5173')).toBe(false);
+    expect(isAllowedCorsOrigin('http://localhost:5173')).toBe(false);
     expect(isAllowedCorsOrigin('chrome-extension://test-extension')).toBe(true);
+    expect(isAllowedCorsOrigin('chrome-extension://mcp-stdio')).toBe(true);
     expect(isAllowedCorsOrigin('http://127.0.0.1.evil.example')).toBe(false);
     expect(isAllowedCorsOrigin('https://127.0.0.1')).toBe(false);
+  });
+
+  test('Explicit origin allowlist and exact extension ID narrow the defaults', () => {
+    const previousOrigins = process.env.CHROME_MCP_ALLOWED_ORIGINS;
+    const previousId = process.env.CHROME_MCP_EXTENSION_ID;
+    try {
+      process.env.CHROME_MCP_ALLOWED_ORIGINS = 'http://127.0.0.1:5173';
+      expect(isAllowedCorsOrigin('http://127.0.0.1:5173')).toBe(true);
+      expect(isAllowedCorsOrigin('chrome-extension://mcp-stdio')).toBe(true);
+
+      process.env.CHROME_MCP_EXTENSION_ID = 'a'.repeat(32);
+      expect(isAllowedCorsOrigin(`chrome-extension://${'a'.repeat(32)}`)).toBe(true);
+      expect(isAllowedCorsOrigin(`chrome-extension://${'b'.repeat(32)}`)).toBe(false);
+    } finally {
+      if (previousOrigins === undefined) delete process.env.CHROME_MCP_ALLOWED_ORIGINS;
+      else process.env.CHROME_MCP_ALLOWED_ORIGINS = previousOrigins;
+      if (previousId === undefined) delete process.env.CHROME_MCP_EXTENSION_ID;
+      else process.env.CHROME_MCP_EXTENSION_ID = previousId;
+    }
+  });
+
+  test('Loopback page origins cannot reach MCP or privileged control routes', async () => {
+    const previousKey = process.env[MCP_API_KEY_ENV];
+    delete process.env[MCP_API_KEY_ENV];
+    const routes = [
+      () => supertest(Server.getInstance().server).post('/mcp').send({}),
+      () => supertest(Server.getInstance().server).get('/status'),
+      () => supertest(Server.getInstance().server).post('/__chrome_mcp_bridge/takeover'),
+      () =>
+        supertest(Server.getInstance().server).post(
+          '/__chrome_mcp_bridge/requests/missing/cancel',
+        ),
+      () =>
+        supertest(Server.getInstance().server).get('/__chrome_mcp_bridge/error-diagnostics'),
+    ];
+    try {
+      for (const origin of ['http://127.0.0.1:5173', 'http://localhost:5173']) {
+        for (const route of routes) {
+          await route()
+            .set('Origin', origin)
+            .expect(403)
+            .expect((response) => {
+              expect(response.body.error).toBe(ERROR_MESSAGES.ORIGIN_NOT_ALLOWED);
+            });
+        }
+      }
+    } finally {
+      if (previousKey === undefined) delete process.env[MCP_API_KEY_ENV];
+      else process.env[MCP_API_KEY_ENV] = previousKey;
+    }
+  });
+
+  test('Extension origin reaches privileged routes when an API key is configured', async () => {
+    const previousKey = process.env[MCP_API_KEY_ENV];
+    process.env[MCP_API_KEY_ENV] = 'origin-test-key';
+    try {
+      await supertest(Server.getInstance().server)
+        .get('/status')
+        .set('Origin', EXTENSION_ORIGIN)
+        .expect(200);
+      await supertest(Server.getInstance().server)
+        .post('/__chrome_mcp_bridge/takeover')
+        .set('Origin', EXTENSION_ORIGIN)
+        .expect(404);
+      await supertest(Server.getInstance().server)
+        .post('/__chrome_mcp_bridge/takeover')
+        .expect(401);
+    } finally {
+      if (previousKey === undefined) delete process.env[MCP_API_KEY_ENV];
+      else process.env[MCP_API_KEY_ENV] = previousKey;
+    }
   });
 
   test('MCP rejects requests without Origin and without an API Key', async () => {
@@ -536,61 +602,16 @@ describe('Server tests', () => {
     }
   });
 
-  test('Agent private endpoints uniformly enforce Origin and API Key auth', async () => {
+  test('MCP request cancellation is privileged and reports unknown requests', async () => {
     const previousKey = process.env[MCP_API_KEY_ENV];
     delete process.env[MCP_API_KEY_ENV];
     try {
       await supertest(Server.getInstance().server)
-        .get('/agent/engines')
-        .expect(403)
-        .expect((response) => {
-          expect(response.body.error).toBe(ERROR_MESSAGES.ORIGIN_NOT_ALLOWED);
-        });
-
+        .post('/__chrome_mcp_bridge/requests/missing/cancel')
+        .expect(403);
       await supertest(Server.getInstance().server)
-        .get('/agent/engines')
-        .set('Origin', 'https://evil.example')
-        .expect(403)
-        .expect((response) => {
-          expect(response.body.error).toBe(ERROR_MESSAGES.ORIGIN_NOT_ALLOWED);
-        });
-
-      await supertest(Server.getInstance().server)
-        .get('/agent/engines')
-        .set('Origin', 'http://127.0.0.1:1420')
-        .expect(200);
-
-      process.env[MCP_API_KEY_ENV] = 'agent-test-key';
-      await supertest(Server.getInstance().server).get('/agent/engines').expect(401);
-      await supertest(Server.getInstance().server)
-        .get('/agent/engines')
-        .set('x-api-key', 'agent-test-key')
-        .expect(200);
-      await supertest(Server.getInstance().server)
-        .get('/agent/engines')
-        .set('Authorization', 'Bearer agent-test-key')
-        .expect(200);
-    } finally {
-      if (previousKey === undefined) delete process.env[MCP_API_KEY_ENV];
-      else process.env[MCP_API_KEY_ENV] = previousKey;
-    }
-  });
-
-  test('Runtime control endpoints are protected and return a redacted task list', async () => {
-    const previousKey = process.env[MCP_API_KEY_ENV];
-    delete process.env[MCP_API_KEY_ENV];
-    try {
-      await supertest(Server.getInstance().server).get('/__chrome_mcp_bridge/runtime').expect(403);
-      const response = await supertest(Server.getInstance().server)
-        .get('/__chrome_mcp_bridge/runtime')
-        .set('Origin', 'http://127.0.0.1:1420')
-        .expect(200);
-      expect(response.body).toEqual(
-        expect.objectContaining({ tasks: expect.any(Array), activeCount: expect.any(Number) }),
-      );
-      await supertest(Server.getInstance().server)
-        .post('/__chrome_mcp_bridge/runtime/missing-task/cancel')
-        .set('Origin', 'http://127.0.0.1:1420')
+        .post('/__chrome_mcp_bridge/requests/missing/cancel')
+        .set('Origin', EXTENSION_ORIGIN)
         .expect(404);
     } finally {
       if (previousKey === undefined) delete process.env[MCP_API_KEY_ENV];

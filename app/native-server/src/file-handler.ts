@@ -35,11 +35,6 @@ export class FileHandler {
           }
           break;
 
-        case 'readBase64File': {
-          if (!filePath) return { success: false, error: 'filePath is required' };
-          return await this.readBase64File(filePath);
-        }
-
         case 'cleanupFile':
           return await this.cleanupFile(filePath);
 
@@ -83,7 +78,7 @@ export class FileHandler {
       }
 
       // Generate filename if not provided
-      const finalFileName = fileName || this.generateFileName(fileUrl);
+      const finalFileName = this.resolveTempPath(fileName || this.generateFileName(fileUrl));
       const filePath = path.join(this.tempDir, finalFileName);
 
       // Get the file buffer
@@ -115,7 +110,7 @@ export class FileHandler {
       const buffer = Buffer.from(base64Content, 'base64');
 
       // Generate filename if not provided
-      const finalFileName = fileName || `upload-${Date.now()}.bin`;
+      const finalFileName = this.resolveTempPath(fileName || `upload-${Date.now()}.bin`);
       const filePath = path.join(this.tempDir, finalFileName);
 
       // Save to file
@@ -165,32 +160,23 @@ export class FileHandler {
   }
 
   /**
-   * Read file content and return as base64 string
+   * Resolve a caller-supplied file name to one path segment inside the temp
+   * directory. A name with separators or an absolute path is rejected instead
+   * of escaping the temp directory.
    */
-  private async readBase64File(filePath: string): Promise<any> {
-    try {
-      if (!fs.existsSync(filePath)) {
-        throw new Error(`File does not exist: ${filePath}`);
-      }
-      const stats = fs.statSync(filePath);
-      if (!stats.isFile()) {
-        throw new Error(`Path is not a file: ${filePath}`);
-      }
-      const buf = fs.readFileSync(filePath);
-      const base64 = buf.toString('base64');
-      return {
-        success: true,
-        filePath,
-        fileName: path.basename(filePath),
-        size: stats.size,
-        base64Data: base64,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: `Failed to read file: ${error instanceof Error ? error.message : String(error)}`,
-      };
+  private resolveTempPath(fileName: string): string {
+    const base = path.basename(String(fileName).trim());
+    if (!base || base === '.' || base === '..' || base !== String(fileName).trim()) {
+      throw new Error('File name must not contain path separators');
     }
+    const resolved = path.resolve(this.tempDir, base);
+    if (!this.isInsideTempDir(resolved)) throw new Error('File name escapes the temp directory');
+    return base;
+  }
+
+  private isInsideTempDir(filePath: string): boolean {
+    const relative = path.relative(this.tempDir, path.resolve(filePath));
+    return relative !== '' && !relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative);
   }
 
   /**
@@ -199,7 +185,7 @@ export class FileHandler {
   private async cleanupFile(filePath: string): Promise<any> {
     try {
       // Only allow cleanup of files in our temp directory
-      if (!filePath.startsWith(this.tempDir)) {
+      if (!this.isInsideTempDir(filePath)) {
         return {
           success: false,
           error: 'Can only cleanup files in temp directory',

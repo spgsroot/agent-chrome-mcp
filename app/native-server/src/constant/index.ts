@@ -1,20 +1,11 @@
-export enum NATIVE_MESSAGE_TYPE {
-  START = 'start',
-  STARTED = 'started',
-  STOP = 'stop',
-  STOPPED = 'stopped',
-  PING = 'ping',
-  PONG = 'pong',
-  ERROR = 'error',
-}
-
 export const NATIVE_SERVER_PORT = 12306;
+
+/** Synthetic origin used by the bundled STDIO proxy's local HTTP hop. */
+export const STDIO_MCP_ORIGIN = 'chrome-extension://mcp-stdio';
 
 // Timeout constants (in milliseconds)
 export const TIMEOUTS = {
   DEFAULT_REQUEST_TIMEOUT: 30000,
-  EXTENSION_REQUEST_TIMEOUT: 20000,
-  PROCESS_DATA_TIMEOUT: 20000,
 } as const;
 
 // Server configuration
@@ -26,6 +17,8 @@ export const SERVER_CONFIG = {
 /**
  * Validate browser Origin values without prefix matching.
  * Prefix matching would allow origins such as http://127.0.0.1.evil.example.
+ * Loopback web origins are intentionally not trusted implicitly; configure
+ * CHROME_MCP_ALLOWED_ORIGINS when a local web UI needs access.
  */
 export function isAllowedCorsOrigin(origin: string): boolean {
   try {
@@ -33,14 +26,11 @@ export function isAllowedCorsOrigin(origin: string): boolean {
     const configuredOrigins = process.env[MCP_ALLOWED_ORIGINS_ENV]?.split(',')
       .map((value) => value.trim())
       .filter(Boolean);
-    if (configuredOrigins?.length) return configuredOrigins.includes(origin);
-    if (url.protocol === 'chrome-extension:' || url.protocol === 'moz-extension:') {
-      const expectedExtensionId = process.env[MCP_EXTENSION_ID_ENV]?.trim();
-      return expectedExtensionId ? url.hostname === expectedExtensionId : Boolean(url.hostname);
-    }
-    return (
-      url.protocol === 'http:' && (url.hostname === '127.0.0.1' || url.hostname === 'localhost')
-    );
+    if (configuredOrigins?.includes(origin)) return true;
+    if (origin === STDIO_MCP_ORIGIN) return true;
+    if (url.protocol !== 'chrome-extension:') return false;
+    const expectedExtensionId = process.env[MCP_EXTENSION_ID_ENV]?.trim();
+    return expectedExtensionId ? url.hostname === expectedExtensionId : Boolean(url.hostname);
   } catch {
     return false;
   }
@@ -59,14 +49,10 @@ export const HTTP_STATUS = {
   NOT_FOUND: 404,
   SERVICE_UNAVAILABLE: 503,
   INTERNAL_SERVER_ERROR: 500,
-  GATEWAY_TIMEOUT: 504,
 } as const;
 
 // Error messages
 export const ERROR_MESSAGES = {
-  NATIVE_HOST_NOT_AVAILABLE: 'Native host connection not established.',
-  SERVER_NOT_RUNNING: 'Server is not actively running.',
-  REQUEST_TIMEOUT: 'Request to extension timed out.',
   INVALID_MCP_REQUEST: 'Invalid MCP request or session.',
   UNAUTHORIZED: 'Missing or invalid MCP API key.',
   ORIGIN_NOT_ALLOWED: 'MCP requests must include an allowed Origin or a valid API key.',
@@ -108,7 +94,7 @@ export function getChromeMcpPort(): number {
 
 /**
  * Get the full URL to the local Chrome MCP HTTP endpoint.
- * This URL is used by Claude/Codex agents to connect to the MCP server.
+ * This URL is used by MCP clients to connect to the MCP server.
  */
 export function getChromeMcpUrl(): string {
   return `http://${SERVER_CONFIG.HOST}:${getChromeMcpPort()}/mcp`;

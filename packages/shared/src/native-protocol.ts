@@ -249,9 +249,6 @@ export function createNativeHello(
 export const NATIVE_PROTOCOL_CAPABILITIES = {
   methods: [
     'browser.callTool',
-    'browser.processData',
-    'rr.listPublishedFlows',
-    'rr.runFlow',
     'native.start',
     'native.stop',
     'file.operation',

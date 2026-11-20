@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import type ServerInstance from './index';
 import type NativeHostInstance from '../native-messaging-host';
 
-const ALLOWED_ORIGIN = 'http://127.0.0.1:1420';
+const ALLOWED_ORIGIN = 'chrome-extension://mcp-lifecycle-test';
 
 type Server = typeof ServerInstance;
 
@@ -76,10 +76,16 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T | 'timeout'> {
   return Promise.race([promise, deadline.promise]);
 }
 
-function postTakeover(port: number): Promise<number> {
+function postTakeover(port: number, origin: string | null = 'chrome-extension://mcp-stdio'): Promise<number> {
   const { promise, resolve, reject } = Promise.withResolvers<number>();
   const request = http.request(
-    { host: '127.0.0.1', port, path: '/__chrome_mcp_bridge/takeover', method: 'POST' },
+    {
+      host: '127.0.0.1',
+      port,
+      path: '/__chrome_mcp_bridge/takeover',
+      method: 'POST',
+      headers: origin ? { Origin: origin } : {},
+    },
     (response) => {
       response.resume();
       resolve(response.statusCode ?? 0);
@@ -121,6 +127,21 @@ describe('Server lifecycle', () => {
 
     expect(await postTakeover(port)).toBe(404);
     expect(server.isRunning).toBe(true);
+  });
+
+  test('takeover rejects a browser origin and accepts the native control origin', async () => {
+    process.env.CHROME_MCP_STANDALONE = '1';
+    const exited = Promise.withResolvers<unknown>();
+    jest.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      exited.resolve(code);
+    }) as never);
+    const { server, port } = await startServer();
+
+    expect(await postTakeover(port, 'http://localhost:5173')).toBe(403);
+    expect(await postTakeover(port, null)).toBe(403);
+    expect(await postTakeover(port)).toBe(200);
+    expect(await within(exited.promise, 3_000)).toBe(0);
+    expect(server.isRunning).toBe(false);
   });
 
   test('a standalone service yields its port to the native host', async () => {

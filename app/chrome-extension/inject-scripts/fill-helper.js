@@ -177,7 +177,7 @@ if (window.__FILL_HELPER_INITIALIZED__) {
       // Find the element
       let element = null;
       if (snapshotId) {
-        const weak = window.__claudeElementMap?.[ref];
+        const weak = window.__mcpElementMap?.[ref];
         element = weak && typeof weak.deref === 'function' ? weak.deref() : null;
         const operation = snapshotOperationForElement(element);
         const validation = verifySnapshotTarget(snapshotId, ref, operation);
@@ -187,7 +187,7 @@ if (window.__FILL_HELPER_INITIALIZED__) {
         }
       } else if (ref && typeof ref === 'string') {
         try {
-          const map = window.__claudeElementMap;
+          const map = window.__mcpElementMap;
           const weak = map && map[ref];
           element = weak && typeof weak.deref === 'function' ? weak.deref() : null;
         } catch (e) {

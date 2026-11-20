@@ -17,7 +17,7 @@ interface ClickToolParams {
   selectorType?: 'css' | 'xpath'; // Type of selector (default: 'css')
   markerId?: string; // Persisted element marker id
   markerName?: string; // Persisted element marker name
-  ref?: string; // Element ref from accessibility tree (window.__claudeElementMap)
+  ref?: string; // Element ref from accessibility tree (window.__mcpElementMap)
   coordinates?: Coordinates; // Coordinates to click at (x, y relative to viewport)
   waitForNavigation?: boolean; // Whether to wait for navigation to complete after click
   timeout?: number; // Timeout in milliseconds for waiting for the element or navigation

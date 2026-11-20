@@ -14,7 +14,6 @@ import {
 import { BACKGROUND_MESSAGE_TYPES } from '@/common/message-types';
 import { NATIVE_HOST, STORAGE_KEYS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '@/common/constants';
 import { handleCallTool } from './tools';
-import { controlRun, enqueueFlow, getFlow, getRun, listFlows } from './record-replay-v3/public-api';
 import { acquireKeepalive } from './keepalive-manager';
 
 const LOG_PREFIX = '[NativeHost]';
@@ -324,43 +323,62 @@ async function uploadLargeArtifact(
   result: unknown,
   signal: AbortSignal,
 ): Promise<Record<string, unknown> | undefined> {
-  const content = (result as { content?: Array<{ type?: string; text?: string }> })?.content;
+  const unwrapped = result && typeof result === 'object' && 'data' in result ? result.data : result;
+  const payload = unwrapped && typeof unwrapped === 'object' ? unwrapped : undefined;
+  const content = payload && 'content' in payload ? payload.content : undefined;
   const text = Array.isArray(content)
     ? content.find((item) => item?.type === 'text' && typeof item.text === 'string')?.text
     : undefined;
-  let parsed: any;
+  let parsed: object | undefined;
   if (text) {
     try {
-      parsed = JSON.parse(text);
+      const value: unknown = JSON.parse(text);
+      if (value && typeof value === 'object') parsed = value;
     } catch {
       // Keep the original text as a text artifact.
     }
   }
 
   const binaryValue =
-    (typeof parsed?.base64Data === 'string' && parsed.base64Data) ||
-    (typeof parsed?.base64 === 'string' && parsed.base64) ||
-    (typeof (result as any)?.base64Data === 'string' && (result as any).base64Data) ||
-    (parsed?.base64Encoded === true && typeof parsed?.responseBody === 'string'
+    (parsed &&
+      'base64Data' in parsed &&
+      typeof parsed.base64Data === 'string' &&
+      parsed.base64Data) ||
+    (parsed && 'base64' in parsed && typeof parsed.base64 === 'string' && parsed.base64) ||
+    (payload &&
+      'base64Data' in payload &&
+      typeof payload.base64Data === 'string' &&
+      payload.base64Data) ||
+    (payload && 'base64' in payload && typeof payload.base64 === 'string' && payload.base64) ||
+    (parsed &&
+    'base64Encoded' in parsed &&
+    parsed.base64Encoded === true &&
+    'responseBody' in parsed &&
+    typeof parsed.responseBody === 'string'
       ? parsed.responseBody
       : undefined);
   const binary = binaryValue ? base64Bytes(binaryValue) : undefined;
-  const contentType =
-    (typeof parsed?.mimeType === 'string' && parsed.mimeType) ||
-    (typeof parsed?.contentType === 'string' && parsed.contentType) ||
-    (toolName.includes('screenshot')
-      ? 'image/png'
-      : toolName.includes('pdf')
-        ? 'application/pdf'
-        : undefined);
-  const bytes =
-    binary && contentType
-      ? binary
-      : new TextEncoder().encode(
-          redactArtifactText(
-            typeof result === 'string' ? result : (JSON.stringify(result) ?? String(result)),
-          ),
-        );
+  const contentType = binary
+    ? (parsed && 'mimeType' in parsed && typeof parsed.mimeType === 'string' && parsed.mimeType) ||
+      (parsed &&
+        'contentType' in parsed &&
+        typeof parsed.contentType === 'string' &&
+        parsed.contentType) ||
+      (toolName.includes('screenshot')
+        ? 'image/png'
+        : toolName.includes('pdf')
+          ? 'application/pdf'
+          : 'application/octet-stream')
+    : typeof result === 'string'
+      ? 'text/plain'
+      : 'application/json';
+  const bytes = binary
+    ? binary
+    : new TextEncoder().encode(
+        redactArtifactText(
+          typeof result === 'string' ? result : (JSON.stringify(result) ?? String(result)),
+        ),
+      );
   if (bytes.byteLength <= INLINE_ARTIFACT_LIMIT_BYTES) return undefined;
 
   const artifactId = crypto.randomUUID();
@@ -378,7 +396,7 @@ async function uploadLargeArtifact(
       requestId: request.requestId,
       traceId: request.traceId,
       artifactId,
-      contentType: contentType || (toolName.includes('html') ? 'text/html' : 'application/json'),
+      contentType,
       size: bytes.byteLength,
       sha256: digest,
       seq,
@@ -389,7 +407,7 @@ async function uploadLargeArtifact(
   return {
     type: 'artifact',
     artifactId,
-    contentType: contentType || (toolName.includes('html') ? 'text/html' : 'application/json'),
+    contentType,
     size: bytes.byteLength,
     sha256: digest,
   };
@@ -438,57 +456,6 @@ async function handleProtocolRequest(message: NativeRequest): Promise<void> {
           message: SUCCESS_MESSAGES.TOOL_EXECUTED,
           data: toolResult,
         };
-        break;
-      }
-      case 'browser.processData':
-        result = {
-          status: 'success',
-          message: SUCCESS_MESSAGES.TOOL_EXECUTED,
-          data: message.params,
-        };
-        break;
-      case 'rr.listPublishedFlows': {
-        const published = await listFlows();
-        const items = [] as any[];
-        for (const p of published) {
-          const flow = await getFlow(p.id);
-          if (!flow) continue;
-          items.push({
-            id: p.id,
-            slug: p.id,
-            version: p.schemaVersion,
-            name: p.name,
-            description: p.description || flow.description || '',
-            variables: flow.variables || [],
-            meta: flow.meta || {},
-          });
-        }
-        result = { status: 'success', items };
-        break;
-      }
-      case 'rr.runFlow': {
-        const { flowId, args } = (message.params || {}) as any;
-        if (typeof flowId !== 'string' || !flowId) throw new Error('flowId is required');
-        if (!(await getFlow(flowId))) throw new Error(`Flow not found: ${flowId}`);
-        const run = await enqueueFlow(flowId, args);
-        result = {
-          status: 'success',
-          data: { content: [{ type: 'text', text: JSON.stringify(run) }], isError: false },
-        };
-        break;
-      }
-      case 'rr_v3.getRun': {
-        const runId = (message.params as any)?.runId;
-        if (typeof runId !== 'string' || !runId) throw new Error('runId is required');
-        result = { status: 'success', data: await getRun(runId) };
-        break;
-      }
-      case 'rr_v3.cancelRun':
-      case 'rr_v3.pauseRun':
-      case 'rr_v3.resumeRun': {
-        const runId = (message.params as any)?.runId;
-        if (typeof runId !== 'string' || !runId) throw new Error('runId is required');
-        result = { status: 'success', data: await controlRun(message.method, runId) };
         break;
       }
       default:
@@ -963,7 +930,19 @@ export const initNativeHostListener = () => {
     void ensureNativeConnected('onInstalled').catch(() => {});
   });
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // Tool calls and native file operations are extension-page privileges; content
+    // scripts are injected into arbitrary pages and must not reach them.
+    const extensionOrigin = chrome.runtime.getURL('');
+    const fromContentScript = Boolean(sender.tab) && !sender.url?.startsWith(extensionOrigin);
+    if (
+      fromContentScript &&
+      (message?.type === 'call_tool' || message?.type === 'forward_to_native')
+    ) {
+      sendResponse({ success: false, error: 'Forbidden for content scripts' });
+      return true;
+    }
+
     // Allow UI to call tools directly
     if (message && message.type === 'call_tool' && message.name) {
       handleCallTool({ name: message.name, args: message.args })

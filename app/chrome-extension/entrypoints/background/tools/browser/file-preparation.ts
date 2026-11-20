@@ -8,6 +8,11 @@ export async function prepareFileFromRemote(options: {
   fileName: string;
 }): Promise<string | null> {
   const { fileUrl, base64Data, fileName } = options;
+  // The native host writes under its temp directory; never forward path separators.
+  const safeFileName =
+    String(fileName || '')
+      .split(/[\\/]/)
+      .pop() || 'uploaded-file';
 
   return new Promise((resolve) => {
     const requestId = `file-prepare-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
@@ -31,7 +36,7 @@ export async function prepareFileFromRemote(options: {
         type: 'forward_to_native',
         request: {
           requestId,
-          params: { action: 'prepareFile', fileUrl, base64Data, fileName },
+          params: { action: 'prepareFile', fileUrl, base64Data, fileName: safeFileName },
         },
       })
       .catch(() => {

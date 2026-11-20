@@ -196,20 +196,17 @@ async function main() {
   const nativeDir = path.join(root, 'app', 'native-server');
   const nativeDist = path.join(nativeDir, 'dist');
   const extensionDist = path.join(root, 'app', 'chrome-extension', '.output', 'chrome-mv3');
-  const iconSource = path.join(root, 'app', 'chrome-extension', 'public', 'icon', 'catgirl.ico');
-  const desktopUiSource = path.join(root, 'scripts', 'desktop-ui.ps1');
+  const iconSource = path.join(root, 'assets', 'chrome-mcp.ico');
   const sourceNodeModules = path.join(nativeDir, 'node_modules');
   const stageNativeDir = path.join(payloadDir, 'app', 'native-server');
   const stageNodeModules = path.join(stageNativeDir, 'node_modules');
 
   if (!existsSync(nativeDist)) throw new Error('Native server dist is missing.');
   if (!existsSync(extensionDist)) throw new Error('Chrome extension build output is missing.');
-  if (!existsSync(iconSource)) throw new Error('Catgirl icon asset is missing.');
+  if (!existsSync(iconSource)) throw new Error('Launcher icon asset is missing.');
   if (!existsSync(sourceNodeModules)) throw new Error('Native server dependencies are missing.');
 
   await fs.copyFile(process.execPath, path.join(payloadDir, 'node.exe'));
-  await fs.copyFile(iconSource, path.join(payloadDir, 'chrome-mcp-icon.ico'));
-  await fs.copyFile(desktopUiSource, path.join(payloadDir, 'desktop-ui.ps1'));
   await fs.mkdir(path.join(payloadDir, 'scripts'), { recursive: true });
   await fs.copyFile(path.join(root, 'scripts', 'sea-launcher.cjs'), path.join(payloadDir, 'scripts', 'sea-launcher.cjs'));
   await fs.cp(nativeDist, path.join(stageNativeDir, 'dist'), { recursive: true });

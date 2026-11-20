@@ -22,35 +22,5 @@ module.exports = {
       lines: 20,
       statements: 20,
     },
-    './src/agent/chat-service.ts': {
-      branches: 40,
-      functions: 40,
-      lines: 50,
-      statements: 50,
-    },
-    './src/agent/stream-manager.ts': {
-      branches: 45,
-      functions: 60,
-      lines: 45,
-      statements: 45,
-    },
-    './src/agent/engines/claude.ts': {
-      branches: 25,
-      functions: 35,
-      lines: 35,
-      statements: 35,
-    },
-    './src/agent/engines/codex.ts': {
-      branches: 20,
-      functions: 40,
-      lines: 45,
-      statements: 45,
-    },
-    './src/server/routes/agent.ts': {
-      branches: 4,
-      functions: 20,
-      lines: 20,
-      statements: 20,
-    },
   },
 };

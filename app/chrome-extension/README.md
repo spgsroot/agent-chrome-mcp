@@ -1,7 +1,16 @@
-# WXT + Vue 3
+# Agent Chrome MCP extension
 
-This template should help get you started developing with Vue 3 in WXT.
+WXT + Vue 3 extension that exposes browser control to the native MCP host.
 
-## Recommended IDE Setup
+## Development
 
-- [VS Code](https://code.visualstudio.com/) + [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar).
+```sh
+pnpm --filter @ethanwilkins/chrome-mcp-server-2026 dev
+pnpm --filter @ethanwilkins/chrome-mcp-server-2026 build
+pnpm --filter @ethanwilkins/chrome-mcp-server-2026 test
+pnpm --filter @ethanwilkins/chrome-mcp-server-2026 typecheck
+```
+
+The extension connects to the native host from `app/native-server`. The popup
+shows connection state, the MCP client config, and basic settings; proxy and
+userscript settings live on the options page.

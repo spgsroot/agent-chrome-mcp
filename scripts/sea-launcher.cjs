@@ -30,27 +30,6 @@ function logPath() {
   return path.join(dataRoot(), 'mcp-chrome-bridge', 'logs', 'portable-launcher.log');
 }
 
-function showWindowsMessage(title, message, icon = 'Error') {
-  if (!standaloneLaunch) return;
-  try {
-    const encode = (value) => Buffer.from(String(value), 'utf8').toString('base64');
-    const script = [
-      `$message = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encode(message)}'));`,
-      `$title = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encode(title)}'));`,
-      'Add-Type -AssemblyName System.Windows.Forms;',
-      `[Windows.Forms.MessageBox]::Show($message, $title, [Windows.Forms.MessageBoxButtons]::OK, [Windows.Forms.MessageBoxIcon]::${icon}) | Out-Null;`,
-    ].join('');
-    const encodedCommand = Buffer.from(script, 'utf16le').toString('base64');
-    childProcess.spawnSync(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-EncodedCommand', encodedCommand],
-      { stdio: 'ignore', windowsHide: true },
-    );
-  } catch {
-    // The log and the console pause below remain available if PowerShell is unavailable.
-  }
-}
-
 function runEnvironmentChecks() {
   const failures = [];
   const warnings = [];
@@ -183,128 +162,6 @@ function writeLog(message) {
   } catch {}
 }
 
-function isProcessAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error && error.code === 'EPERM';
-  }
-}
-
-function getLockInfo(lockPath) {
-  try {
-    const stat = fs.statSync(lockPath);
-    const pid = Number.parseInt(fs.readFileSync(lockPath, 'utf8').trim().split(/\s+/)[0], 10);
-    return { pid, ageMs: Math.max(0, Date.now() - stat.mtimeMs) };
-  } catch (error) {
-    if (error.code === 'ENOENT') return null;
-    return { pid: 0, ageMs: Number.POSITIVE_INFINITY };
-  }
-}
-
-function managerLockPath() {
-  return path.join(dataRoot(), 'mcp-chrome-bridge', 'desktop-manager.lock');
-}
-
-function acquireManagerLock() {
-  const lockPath = managerLockPath();
-  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const fd = fs.openSync(lockPath, 'wx');
-      fs.writeFileSync(fd, `${process.pid}\n${Date.now()}`);
-      return { fd, lockPath };
-    } catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-      const info = getLockInfo(lockPath);
-      if (info?.pid && isProcessAlive(info.pid)) return null;
-      try { fs.rmSync(lockPath, { force: true }); } catch {}
-    }
-  }
-  return null;
-}
-
-function releaseManagerLock(lock) {
-  if (!lock) return;
-  try { fs.closeSync(lock.fd); } catch {}
-  try { fs.rmSync(lock.lockPath, { force: true }); } catch {}
-}
-
-function launchDesktopManager(config, port, payloadRoot) {
-  const lock = acquireManagerLock();
-  if (!lock) {
-    showWindowsMessage(
-      'Chrome MCP Bridge',
-      'The client is already running. Open the existing window from the system tray instead of starting it again.',
-      'Information',
-    );
-    return null;
-  }
-
-  const uiDirectory = path.join(dataRoot(), 'mcp-chrome-bridge', 'ui');
-  const uiScriptPath = path.join(uiDirectory, `desktop-ui-${config.version}.ps1`);
-  const iconPath = path.join(uiDirectory, 'chrome-mcp-icon.ico');
-  try {
-    fs.mkdirSync(uiDirectory, { recursive: true });
-    const script = fs.readFileSync(path.join(payloadRoot, 'desktop-ui.ps1'));
-    const icon = fs.readFileSync(path.join(payloadRoot, 'chrome-mcp-icon.ico'));
-    // Windows PowerShell 5.1 needs a UTF-8 BOM to read non-ASCII UI text.
-    fs.writeFileSync(uiScriptPath, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), script]));
-    fs.writeFileSync(iconPath, icon);
-    const uiProcess = childProcess.spawn(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-STA',
-        '-WindowStyle',
-        'Hidden',
-        '-ExecutionPolicy',
-        'Bypass',
-        '-File',
-        uiScriptPath,
-        '-Port',
-        String(port),
-        '-Version',
-        String(config.version),
-        '-ExtensionId',
-        String(config.extensionId),
-        '-HostName',
-        String(config.hostName),
-        '-IconPath',
-        iconPath,
-        '-LogPath',
-        logPath(),
-      ],
-      // Keep the WinForms window visible. PowerShell's -WindowStyle Hidden
-      // hides its console; Node's windowsHide flag would also hide the UI
-      // window created by System.Windows.Forms.
-      { stdio: 'ignore', windowsHide: false },
-    );
-    uiProcess.once('error', (error) => {
-      writeLog(`Failed to start the desktop manager: ${error.message}`);
-      releaseManagerLock(lock);
-      try { fs.rmSync(uiScriptPath, { force: true }); } catch {}
-      try { fs.rmSync(iconPath, { force: true }); } catch {}
-      showWindowsMessage('Chrome MCP Bridge failed to start', `Failed to start the desktop manager: ${error.message}`);
-      process.exitCode = 1;
-    });
-    uiProcess.once('exit', (code) => {
-      releaseManagerLock(lock);
-      try { fs.rmSync(uiScriptPath, { force: true }); } catch {}
-      try { fs.rmSync(iconPath, { force: true }); } catch {}
-      process.exit(code === null ? 0 : code);
-    });
-    return uiProcess;
-  } catch (error) {
-    releaseManagerLock(lock);
-    try { fs.rmSync(uiScriptPath, { force: true }); } catch {}
-    try { fs.rmSync(iconPath, { force: true }); } catch {}
-    throw error;
-  }
-}
-
 function validatePayload(payloadRoot) {
   const requiredPaths = [
     path.join(payloadRoot, 'payload-config.json'),
@@ -319,12 +176,6 @@ function validatePayload(payloadRoot) {
   }
 
   const entryPath = path.join(payloadRoot, 'app', 'native-server', 'dist', 'index.js');
-  const requireFromEntry = createRequire(entryPath);
-  try {
-    requireFromEntry('better-sqlite3');
-  } catch (error) {
-    throw new Error(`Failed to load the critical native dependency better-sqlite3 (${process.arch}): ${error.message}`);
-  }
   return entryPath;
 }
 
@@ -451,14 +302,12 @@ if (standaloneLaunch) process.env.CHROME_MCP_STANDALONE = '1';
         `The service will still try to start. Diagnostic log: ${logPath()}`,
       ].join('\n');
       writeLog(`Pre-launch warnings:\n${warningText}`);
-      // The desktop manager displays warnings in its status panel. A modal
-      // message box here would block the manager whenever Native Host already
-      // owns the expected port, which is the normal Chrome-connected state.
-      if (!standaloneLaunch) showWindowsMessage('Chrome MCP Bridge environment warning', warningText, 'Warning');
     }
 
     if (standaloneLaunch) {
-      launchDesktopManager(config, port, payloadRoot);
+      // No GUI: run the service in the foreground console. Closing it stops
+      // the process, matching the double-click lifecycle.
+      createRequire(entryPath)(entryPath);
       return;
     }
 
@@ -475,7 +324,6 @@ if (standaloneLaunch) process.env.CHROME_MCP_STANDALONE = '1';
     ].join('\n');
     process.stderr.write(`Chrome MCP Bridge failed to start: ${fullError}\n`);
     writeLog(`Startup failed:\n${fullError}\nEnvironment: ${userMessage}`);
-    showWindowsMessage('Chrome MCP Bridge failed to start', userMessage);
     if (standaloneLaunch) waitForUserBeforeExit();
     else process.exitCode = 1;
   }

@@ -233,7 +233,6 @@ export function initElementMarkerListeners() {
   // Ensure context menu on startup
   ensureContextMenu().catch(() => {});
 
-  // Respond to RR triggers refresh by re-ensuring our menu a bit later
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       switch (message?.type) {
@@ -628,13 +627,6 @@ export function initElementMarkerListeners() {
             return sendResponse(base);
           })();
           return true;
-        }
-        // When RR refresh (or similar) happens, re-add our menu
-        case BACKGROUND_MESSAGE_TYPES.RR_REFRESH_TRIGGERS:
-        case BACKGROUND_MESSAGE_TYPES.RR_SAVE_TRIGGER:
-        case BACKGROUND_MESSAGE_TYPES.RR_DELETE_TRIGGER: {
-          setTimeout(() => ensureContextMenu().catch(() => {}), 300);
-          break;
         }
       }
     } catch (e) {

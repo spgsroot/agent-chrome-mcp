@@ -69,7 +69,5 @@ function sync(file, source) {
   return missing.length;
 }
 
-const added =
-  sync('docs/TOOLS.md', 'packages/shared/src/tools.ts') +
-  sync('docs/TOOLS_zh.md', 'packages/shared/src/tools.ts');
+const added = sync('docs/TOOLS.md', 'packages/shared/src/tools.ts');
 console.log(`Added ${added} tool documentation entries.`);

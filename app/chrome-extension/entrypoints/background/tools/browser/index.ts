@@ -10,7 +10,6 @@ export {
 } from './page-tools';
 export { windowTool } from './window';
 export { cookieGetTool, cookieSetTool, cookieDeleteTool } from './cookie';
-export { vectorSearchTabsContentTool as searchTabsContentTool } from './vector-search';
 export { screenshotTool } from './screenshot';
 export { webFetcherTool, getInteractiveElementsTool } from './web-fetcher';
 export { clickTool, fillTool } from './interaction';

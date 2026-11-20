@@ -29,6 +29,12 @@ After installation completes, the system automatically tries to register the Nat
 
 ### 2. User-level registration
 
+Source-checkout builds usually have no manifest `key`, so Chrome assigns the
+unpacked extension a path-derived ID. Set `CHROME_MCP_EXTENSION_ID` to that ID
+(from `chrome://extensions/`) before running `register`; otherwise the manifest
+falls back to the release ID and Chrome rejects the connection. Release ZIPs
+that include a key do not need this override.
+
 User-level registration creates manifest files in the following locations:
 
 ```
@@ -149,6 +155,25 @@ manifest.json
    - Prompt the user to rerun the command with administrator permissions
    - macOS/Linux: `sudo mcp-chrome-bridge register --system`
    - Windows: run the command prompt as administrator
+
+## HTTP endpoint security
+
+The local HTTP service listens on loopback only. Every privileged route (`/mcp`,
+`/mcp-new`, `/sse`, `/messages`, `/status`, diagnostics, service control,
+request cancellation, and artifacts) shares one authorization boundary:
+
+- a matching `CHROME_MCP_API_KEY` (Bearer token or `x-api-key`), or
+- an allowed `Origin`: a `chrome-extension://` origin, the bundled
+  `chrome-extension://mcp-stdio` STDIO origin, or an exact entry from
+  `CHROME_MCP_ALLOWED_ORIGINS`.
+
+Requests with no Origin and no key are rejected with `403`. Local web pages
+(`http://localhost:*`, `http://127.0.0.1:*`) are **not** trusted implicitly;
+adding one to `CHROME_MCP_ALLOWED_ORIGINS` is an explicit opt-in. Set
+`CHROME_MCP_EXTENSION_ID` to the unpacked extension's exact ID in production;
+without it, any installed extension origin is accepted so the popup can reach
+`/status`. Artifact URLs require their one-time token. Direct browser navigation
+to `/status` is therefore expected to return `403`.
 
 ## Verifying the installation
 

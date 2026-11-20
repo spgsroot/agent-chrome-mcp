@@ -1,7 +1,7 @@
 /**
  * Element Picker Content Script
  *
- * Renders the Element Picker Panel UI (Quick Panel style) and forwards UI events
+ * Renders the Element Picker Panel UI and forwards UI events
  * to background while a chrome_request_element_selection session is active.
  *
  * This script only runs in the top frame and handles:

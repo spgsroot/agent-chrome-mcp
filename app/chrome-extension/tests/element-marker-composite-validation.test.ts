@@ -51,7 +51,7 @@ describe('composite iframe list validation', () => {
         new MessageEvent('message', {
           source: frame.contentWindow,
           data: {
-            type: 'rr-bridge-ensure-ref-result',
+            type: 'mcp-bridge-ensure-ref-result',
             reqId: request.reqId,
             success: true,
             ref: 'ref_one',
@@ -98,7 +98,7 @@ describe('composite iframe list validation', () => {
       new MessageEvent('message', {
         source: child.top,
         data: {
-          type: 'rr-bridge-ensure-ref',
+          type: 'mcp-bridge-ensure-ref',
           reqId: 'request',
           selector: '#one, #two',
           allowMultiple: true,

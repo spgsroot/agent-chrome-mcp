@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import http from 'node:http';
 import net from 'node:net';
-import { MCP_ALLOWED_ORIGINS_ENV, MCP_EXTENSION_ID_ENV } from './constant/index.js';
+import { isAllowedCorsOrigin } from './constant/index.js';
 
 export interface EventChannelInfo {
   port: number;
@@ -14,21 +14,14 @@ const MAX_CONNECTIONS = 1;
 const IDLE_TIMEOUT_MS = 90_000;
 const TOKEN_TTL_MS = 5 * 60_000;
 
-function allowedOrigins(): string[] {
-  return (process.env.CHROME_MCP_WS_ALLOWED_ORIGINS || process.env[MCP_ALLOWED_ORIGINS_ENV] || '')
+function isAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin) return false;
+  const wsConfigured = (process.env.CHROME_MCP_WS_ALLOWED_ORIGINS || '')
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean);
-}
-
-function isAllowedOrigin(origin: string | undefined): boolean {
-  if (!origin) return false;
-  const configured = allowedOrigins();
-  if (configured.length) return configured.includes(origin);
-  const expectedExtensionId = process.env[MCP_EXTENSION_ID_ENV]?.trim();
-  return expectedExtensionId
-    ? origin === `chrome-extension://${expectedExtensionId}`
-    : /^chrome-extension:\/\/[a-p]{32}$/.test(origin);
+  if (wsConfigured.includes(origin)) return true;
+  return isAllowedCorsOrigin(origin);
 }
 
 function closeSocket(socket: net.Socket, code = 1008): void {

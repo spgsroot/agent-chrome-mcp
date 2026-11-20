@@ -37,13 +37,13 @@ The report summarizes environment and diagnostic information useful for troubles
 
 **A:** `/status` is also protected by the local Origin / API key checks. When you open `http://127.0.0.1:12306/status` directly in the browser address bar, the browser usually does not send an `Origin` request header. If the server has no API key configured, that request is rejected with 403. A request with an Origin that is not allowed is also rejected with 403. A 403 means the request did not pass access validation; it does not mean the service is stopped.
 
-You can check the status from the Chrome extension or desktop client, which sends a local request with the required headers. Or, send an allowed local Origin from the command line:
+You can check the status from the Chrome extension popup, which sends an allowed `chrome-extension://` Origin. Direct browser navigation sends no usable Origin and is rejected unless the server has an API key and the URL is opened with matching credentials. For an explicitly configured local UI, add its exact origin to `CHROME_MCP_ALLOWED_ORIGINS` and send that Origin from the command line:
 
 ```bash
-curl -H "Origin: http://127.0.0.1:1420" http://127.0.0.1:12306/status
+curl -H "Origin: http://127.0.0.1:5173" http://127.0.0.1:12306/status
 ```
 
-By default, `http://localhost` and `http://127.0.0.1` origins are allowed. If `CHROME_MCP_ALLOWED_ORIGINS` is configured, the Origin must exactly match one of its entries. If `CHROME_MCP_API_KEY` is enabled, also send `Authorization: Bearer <key>`; an allowed Origin alone is not enough.
+Local web pages (`http://localhost`, `http://127.0.0.1`) are not trusted implicitly. Only `CHROME_MCP_ALLOWED_ORIGINS` entries and `chrome-extension://` origins are accepted. When `CHROME_MCP_EXTENSION_ID` is set, only that exact extension ID is accepted. A request with no Origin must carry `Authorization: Bearer <CHROME_MCP_API_KEY>`; a matching key is an alternative to an allowed Origin, not an additional requirement.
 
 ## Q: Why does the service fail to start even though the extension says it connected?
 

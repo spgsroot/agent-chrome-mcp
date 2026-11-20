@@ -1,14 +1,11 @@
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
-import vue from '@vitejs/plugin-vue';
 import { defineConfig } from 'vitest/config';
 
 const rootDir = fileURLToPath(new URL('.', import.meta.url));
 
 export default defineConfig({
-  // Compile .vue imports so render tests can mount real components.
-  plugins: [vue()],
   resolve: {
     alias: {
       // Match WXT's path aliases from .wxt/tsconfig.json
@@ -20,8 +17,6 @@ export default defineConfig({
         rootDir,
         '../../packages/shared/src/index.ts',
       ),
-      // Mock hnswlib-wasm-static to avoid native module issues in tests
-      'hnswlib-wasm-static': `${rootDir}/tests/__mocks__/hnswlib-wasm-static.ts`,
     },
   },
   test: {

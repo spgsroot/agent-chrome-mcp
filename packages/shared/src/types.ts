@@ -6,8 +6,6 @@ export enum NativeMessageType {
   PING = 'ping',
   PONG = 'pong',
   ERROR = 'error',
-  PROCESS_DATA = 'process_data',
-  PROCESS_DATA_RESPONSE = 'process_data_response',
   CALL_TOOL = 'call_tool',
   CALL_TOOL_RESPONSE = 'call_tool_response',
   TOOL_PROGRESS = 'tool_progress',
@@ -28,53 +26,6 @@ export interface NativeMessage<P = unknown, E = unknown> {
   responseToRequestId?: string;
   payload?: P;
   error?: E;
-}
-
-export type RuntimeTaskKind = 'mcp' | 'agent' | 'workflow';
-export type RuntimeTaskStatus =
-  'running' | 'waiting' | 'paused' | 'cancelling' | 'success' | 'error' | 'cancelled' | 'unknown';
-
-export type RuntimeTaskEventType =
-  | 'started'
-  | 'step_started'
-  | 'step_finished'
-  | 'waiting'
-  | 'paused'
-  | 'resumed'
-  | 'cancel_requested'
-  | 'finished'
-  | 'error';
-
-export interface RuntimeTaskSummary {
-  taskId: string;
-  kind: RuntimeTaskKind;
-  label: string;
-  clientName?: string | null;
-  sessionId?: string | null;
-  toolName?: string | null;
-  tabId?: number | null;
-  profileId?: string | null;
-  origin?: string | null;
-  startedAt: string;
-  updatedAt: string;
-  elapsedMs: number;
-  status: RuntimeTaskStatus;
-  cancelable: boolean;
-  pausable: boolean;
-  errorCategory?: string | null;
-  errorMessage?: string | null;
-}
-
-export interface RuntimeTaskEvent {
-  type: RuntimeTaskEventType;
-  at: string;
-  taskId: string;
-  status: RuntimeTaskStatus;
-  toolName?: string | null;
-  tabId?: number | null;
-  origin?: string | null;
-  elapsedMs?: number;
-  message?: string | null;
 }
 
 // ============================================================

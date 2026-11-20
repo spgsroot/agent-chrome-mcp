@@ -46,13 +46,11 @@ fn data_root() -> PathBuf {
         .unwrap_or_else(env::temp_dir)
 }
 
-fn required_payload_paths(root: &Path) -> [PathBuf; 6] {
+fn required_payload_paths(root: &Path) -> [PathBuf; 4] {
     [
         root.join("payload-config.json"),
         root.join("node.exe"),
         root.join("scripts/sea-launcher.cjs"),
-        root.join("desktop-ui.ps1"),
-        root.join("chrome-mcp-icon.ico"),
         root.join("app/native-server/dist/index.js"),
     ]
 }

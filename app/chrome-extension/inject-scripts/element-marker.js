@@ -2431,10 +2431,7 @@
    * capture listener. Do not consume the event when one of them is active.
    */
   function isExternalPickerActive() {
-    return Boolean(
-      document.getElementById('__rr_picker_host__') ||
-      document.getElementById('__mcp_element_picker_host__'),
-    );
+    return Boolean(document.getElementById('__mcp_element_picker_host__'));
   }
 
   /**

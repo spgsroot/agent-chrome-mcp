@@ -65,7 +65,7 @@ function mockElementFromPoint(element: Element): ReturnType<typeof vi.fn> {
 describe('interaction helpers', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
-    (window as any).__claudeElementMap = {};
+    (window as any).__mcpElementMap = {};
     vi.restoreAllMocks();
   });
 
@@ -267,7 +267,7 @@ describe('interaction helpers', () => {
     setRect(button);
     button.dispatchEvent = vi.fn(() => true);
     document.body.append(button);
-    (window as any).__claudeElementMap.ref_hover = { deref: () => button };
+    (window as any).__mcpElementMap.ref_hover = { deref: () => button };
     vi.stubGlobal('MouseEvent', class {});
 
     const handler = loadInjectedHelper(
@@ -451,7 +451,7 @@ describe('interaction helpers', () => {
     button.addEventListener('click', click);
     document.body.append(button);
     mockElementFromPoint(button);
-    (window as any).__claudeElementMap.ref_1 = new WeakRef(button);
+    (window as any).__mcpElementMap.ref_1 = new WeakRef(button);
     loadInjectedHelper('accessibility-tree-helper.js', '__ACCESSIBILITY_TREE_HELPER_INITIALIZED__');
 
     const handler = loadInjectedHelper('click-helper.js', '__CLICK_HELPER_INITIALIZED__');
@@ -575,7 +575,7 @@ describe('interaction helpers', () => {
     setRect(input);
     document.body.append(input);
     mockElementFromPoint(input);
-    (window as any).__claudeElementMap.ref_1 = new WeakRef(input);
+    (window as any).__mcpElementMap.ref_1 = new WeakRef(input);
     loadInjectedHelper('accessibility-tree-helper.js', '__ACCESSIBILITY_TREE_HELPER_INITIALIZED__');
     const handler = loadInjectedHelper('fill-helper.js', '__FILL_HELPER_INITIALIZED__');
 

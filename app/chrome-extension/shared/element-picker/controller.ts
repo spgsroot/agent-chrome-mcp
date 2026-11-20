@@ -8,13 +8,66 @@
  * - Cancel/Confirm actions
  */
 
-import { Disposer } from '@/entrypoints/web-editor-v3/utils/disposables';
-import {
-  mountQuickPanelShadowHost,
-  type QuickPanelShadowHostElements,
-  type QuickPanelShadowHostManager,
-} from '@/shared/quick-panel/ui';
 import type { PickedElement } from '@ethanwilkins/chrome-mcp-shared-2026';
+
+class Disposer {
+  private readonly cleanups: Array<() => void> = [];
+
+  add(cleanup: () => void): void {
+    this.cleanups.push(cleanup);
+  }
+
+  listen(
+    target: EventTarget,
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: AddEventListenerOptions | boolean,
+  ): void {
+    target.addEventListener(type, listener, options);
+    this.add(() => target.removeEventListener(type, listener, options));
+  }
+
+  dispose(): void {
+    for (const cleanup of this.cleanups.splice(0)) {
+      try {
+        cleanup();
+      } catch {
+        // Cleanup is best-effort.
+      }
+    }
+  }
+}
+
+interface ShadowHostElements {
+  shadowRoot: ShadowRoot;
+  root: HTMLElement;
+}
+
+interface ShadowHostManager {
+  getElements(): ShadowHostElements | null;
+  dispose(): void;
+}
+
+function mountShadowHost(hostId: string, zIndex: number): ShadowHostManager {
+  let host = document.getElementById(hostId);
+  if (!host) {
+    host = document.createElement('div');
+    host.id = hostId;
+    host.style.cssText = `position:fixed;inset:0;z-index:${zIndex};pointer-events:none;`;
+    document.documentElement.append(host);
+  }
+  const shadowRoot = host.shadowRoot ?? host.attachShadow({ mode: 'open' });
+  let root = shadowRoot.querySelector<HTMLElement>('.ep-root');
+  if (!root) {
+    root = document.createElement('div');
+    root.className = 'ep-root';
+    shadowRoot.append(root);
+  }
+  return {
+    getElements: () => ({ shadowRoot, root }),
+    dispose: () => host?.remove(),
+  };
+}
 
 // ============================================================
 // Types
@@ -75,10 +128,44 @@ const DEFAULT_HOST_ID = '__mcp_element_picker_host__';
 const DEFAULT_Z_INDEX = 2147483647;
 
 // ============================================================
-// Styles (Quick Panel compatible)
+// Styles
 // ============================================================
 
 const ELEMENT_PICKER_STYLES = /* css */ `
+  :host,
+  .ep-root {
+    --ac-font-code: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --ac-text: #111827;
+    --ac-text-muted: #4b5563;
+    --ac-warning: #b45309;
+    --ac-danger: #b91c1c;
+    --ac-success: #047857;
+    --ac-accent: #1d4ed8;
+    --ac-accent-subtle: #bfdbfe;
+    --ac-border: #d1d5db;
+    --ac-border-width: 1px;
+    --ac-shadow-card: 0 4px 16px rgba(0, 0, 0, 0.16);
+    --ac-surface: #ffffff;
+    --ac-surface-muted: #f3f4f6;
+    --ac-radius-card: 8px;
+    --ac-radius-inner: 6px;
+    --ac-motion-fast: 120ms;
+    --qp-glass-divider: #d1d5db;
+    --qp-glass-input-bg: #ffffff;
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: var(--ac-text);
+  }
+
+  .ep-root {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .ep-root * {
+    box-sizing: border-box;
+  }
+
   /* Overlay positioning - bottom-right corner */
   .ep-overlay {
     position: fixed;
@@ -278,6 +365,101 @@ const ELEMENT_PICKER_STYLES = /* css */ `
     display: flex;
     gap: 8px;
   }
+
+  /* Panel shell */
+  .qp-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--ac-border);
+    border-radius: 10px;
+    background: var(--ac-surface);
+    box-shadow: var(--ac-shadow-card);
+    pointer-events: auto;
+  }
+
+  .qp-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--ac-border);
+  }
+
+  .qp-header-left,
+  .qp-header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .qp-brand {
+    font-size: 16px;
+  }
+
+  .qp-title-name {
+    font-weight: 650;
+  }
+
+  .qp-title-sub {
+    color: var(--ac-text-muted);
+    font-size: 11px;
+  }
+
+  .qp-content {
+    max-height: calc(100vh - 190px);
+    padding: 12px;
+    overflow: auto;
+  }
+
+  .qp-composer {
+    padding: 10px 12px;
+    border-top: 1px solid var(--ac-border);
+  }
+
+  .qp-btn {
+    padding: 6px 10px;
+    border: 1px solid var(--ac-border);
+    border-radius: 6px;
+    background: #ffffff;
+    color: var(--ac-text);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .qp-btn:hover:not(:disabled) {
+    background: var(--ac-surface-muted);
+  }
+
+  .qp-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .qp-btn--primary {
+    border-color: #1d4ed8;
+    background: #1d4ed8;
+    color: #ffffff;
+  }
+
+  .qp-btn--primary:hover:not(:disabled) {
+    background: #1e40af;
+  }
+
+  .ac-focus-ring:focus-visible {
+    outline: 2px solid #1d4ed8;
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
 `;
 
 // ============================================================
@@ -322,8 +504,8 @@ export function createElementPickerController(
 ): ElementPickerController {
   let disposed = false;
 
-  let shadowHost: QuickPanelShadowHostManager | null = null;
-  let elements: QuickPanelShadowHostElements | null = null;
+  let shadowHost: ShadowHostManager | null = null;
+  let elements: ShadowHostElements | null = null;
   let disposer: Disposer | null = null;
   let state: ElementPickerUiState | null = null;
 
@@ -336,7 +518,7 @@ export function createElementPickerController(
   let confirmBtn: HTMLButtonElement | null = null;
   let cancelBtn: HTMLButtonElement | null = null;
   let progressEl: HTMLSpanElement | null = null;
-  let timerId: ReturnType<typeof setInterval> | null = null;
+  let timerId: ReturnType<typeof setInterval> | undefined;
 
   // Cached item elements for incremental updates
   interface ItemElements {
@@ -354,7 +536,7 @@ export function createElementPickerController(
   function ensureMounted(): void {
     if (shadowHost && elements) return;
 
-    shadowHost = mountQuickPanelShadowHost({ hostId, zIndex });
+    shadowHost = mountShadowHost(hostId, zIndex);
     elements = shadowHost.getElements();
     if (!elements) throw new Error('Failed to mount Element Picker shadow host');
 
@@ -372,7 +554,7 @@ export function createElementPickerController(
     overlayEl.className = 'ep-overlay';
 
     panelEl = document.createElement('div');
-    panelEl.className = 'qp-panel qp-liquid-shimmer ep-panel';
+    panelEl.className = 'qp-panel ep-panel';
     panelEl.setAttribute('role', 'dialog');
     panelEl.setAttribute('aria-modal', 'false');
     panelEl.setAttribute('aria-label', 'Element Picker');
@@ -469,7 +651,7 @@ export function createElementPickerController(
     localDisposer.listen(cancelBtn, 'click', () => options.onCancel?.());
     localDisposer.listen(confirmBtn, 'click', () => options.onConfirm?.());
 
-    // Esc key to cancel - use capture phase on shadowRoot to intercept before Quick Panel stops propagation
+    // Esc key to cancel - capture phase so the page cannot swallow it first.
     const handleEscKey = (e: Event) => {
       if (e instanceof KeyboardEvent && e.key === 'Escape') {
         e.preventDefault();
@@ -484,10 +666,8 @@ export function createElementPickerController(
   }
 
   function clearTimer(): void {
-    if (timerId !== null) {
-      clearInterval(timerId);
-      timerId = null;
-    }
+    clearInterval(timerId);
+    timerId = undefined;
   }
 
   /**

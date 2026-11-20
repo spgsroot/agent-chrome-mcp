@@ -57,47 +57,6 @@ if (window.__NETWORK_CAPTURE_HELPER_INITIALIZED__) {
         }
       };
 
-      // Helper: request native to read filePath into base64
-      const readFileBase64 = (path) =>
-        new Promise((resolve) => {
-          const requestId = `net-helper-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-          const timeoutId = setTimeout(() => {
-            cleanup();
-            resolve(null);
-          }, 30000);
-          function onMessage(msg) {
-            if (
-              msg &&
-              msg.type === 'file_operation_response' &&
-              msg.responseToRequestId === requestId
-            ) {
-              cleanup();
-              const p = msg.payload || {};
-              if (p.success && p.base64Data)
-                resolve({ base64: p.base64Data, fileName: p.fileName });
-              else resolve(null);
-            }
-          }
-          function cleanup() {
-            clearTimeout(timeoutId);
-            chrome.runtime.onMessage.removeListener(onMessage);
-          }
-          chrome.runtime.onMessage.addListener(onMessage);
-          chrome.runtime
-            .sendMessage({
-              type: 'forward_to_native',
-              message: {
-                type: 'file_operation',
-                requestId,
-                payload: { action: 'readBase64File', filePath: path },
-              },
-            })
-            .catch(() => {
-              cleanup();
-              resolve(null);
-            });
-        });
-
       // Build multipart/form-data if descriptor is provided
       if (requestMethod !== 'GET' && requestMethod !== 'HEAD' && formDataDescriptor) {
         const fd = new FormData();
@@ -119,13 +78,6 @@ if (window.__NETWORK_CAPTURE_HELPER_INITIALIZED__) {
                 const b64 = spec.replace(/^base64:/i, '');
                 const blob = base64ToBlob(b64);
                 fd.append(name, blob, filenameHint || 'file');
-              } else if (/^file:/i.test(spec)) {
-                const p = spec.replace(/^file:/i, '');
-                const res = await readFileBase64(p);
-                if (res && res.base64) {
-                  const blob = base64ToBlob(res.base64);
-                  fd.append(name, blob, filenameHint || res.fileName || 'file');
-                }
               } else {
                 // treat as string field
                 fd.append(name, spec);
@@ -152,15 +104,6 @@ if (window.__NETWORK_CAPTURE_HELPER_INITIALIZED__) {
                   String(file.contentType || 'application/octet-stream'),
                 );
                 fd.append(name, blob, file.filename || 'file');
-              } else if (file.filePath) {
-                const res = await readFileBase64(String(file.filePath));
-                if (res && res.base64) {
-                  const blob = base64ToBlob(
-                    res.base64,
-                    String(file.contentType || 'application/octet-stream'),
-                  );
-                  fd.append(name, blob, file.filename || res.fileName || 'file');
-                }
               }
             }
           }

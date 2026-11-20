@@ -12,8 +12,8 @@ import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import cors from '@fastify/cors';
 import {
   NATIVE_SERVER_PORT,
-  TIMEOUTS,
   SERVER_CONFIG,
+  STDIO_MCP_ORIGIN,
   HTTP_STATUS,
   ERROR_MESSAGES,
   isAllowedCorsOrigin,
@@ -31,13 +31,6 @@ import { toNodeHandler } from '@modelcontextprotocol/node';
 import { getMcpServer } from '../mcp/mcp-server';
 import { getModernMcpServer } from '../mcp/mcp-server-modern.js';
 import { getLegacyMcpServer } from '../mcp/mcp-server-legacy.js';
-import { AgentStreamManager } from '../agent/stream-manager';
-import { AgentChatService } from '../agent/chat-service';
-import { CodexEngine } from '../agent/engines/codex';
-import { ClaudeEngine } from '../agent/engines/claude';
-import { DeepSeekEngine } from '../agent/engines/deepseek';
-import { closeDb } from '../agent/db';
-import { registerAgentRoutes } from './routes';
 import { NATIVE_PROTOCOL_VERSION, TOOL_SCHEMAS } from '@ethanwilkins/chrome-mcp-shared-2026';
 import packageJson from '../../package.json';
 import {
@@ -48,20 +41,31 @@ import {
 import { NativeMessageType } from '@ethanwilkins/chrome-mcp-shared-2026';
 import { browserProfileManager } from '../browser-profile-manager.js';
 import { createReadStream } from 'node:fs';
-import { RuntimeRegistry } from '../runtime-registry';
 
 // ============================================================
 // Types
 // ============================================================
 
-interface ExtensionRequestPayload {
-  data?: unknown;
-}
-
 type McpTransport = StreamableHTTPServerTransport | SSEServerTransport;
 type McpTransportType = 'streamable-http' | 'sse' | 'stdio';
 type McpEndpoint = '/mcp' | '/mcp-new' | '/sse';
-const STDIO_MCP_ORIGIN = 'chrome-extension://mcp-stdio';
+/** Routes that reveal or mutate local browser state. Keep one list. */
+function isPrivilegedPath(pathname: string): boolean {
+  return (
+    pathname === '/mcp' ||
+    pathname === '/mcp-new' ||
+    pathname === '/sse' ||
+    pathname === '/messages' ||
+    pathname === '/status' ||
+    pathname === '/__chrome_mcp_bridge/error-diagnostics' ||
+    pathname === '/__chrome_mcp_bridge/error-diagnostics/clear' ||
+    pathname === '/__chrome_mcp_bridge/takeover' ||
+    pathname === '/__chrome_mcp_bridge/start' ||
+    pathname === '/__chrome_mcp_bridge/stop' ||
+    pathname.startsWith('/artifacts/') ||
+    pathname.startsWith('/__chrome_mcp_bridge/requests/')
+  );
+}
 
 interface McpClientInfo {
   name: string;
@@ -193,16 +197,6 @@ function getMcpClientInfo(body: unknown): McpClientInfo | null {
   };
 }
 
-function createHttpAbortController(request: FastifyRequest, reply: FastifyReply): AbortController {
-  const controller = new AbortController();
-  const abort = () => {
-    if (!reply.raw.writableEnded) controller.abort();
-  };
-  request.raw.once('aborted', abort);
-  reply.raw.once('close', abort);
-  return controller;
-}
-
 // ============================================================
 // Server Class
 // ============================================================
@@ -233,9 +227,6 @@ export class Server {
   private reclaimedSessions = 0;
   private cleanupTimer: NodeJS.Timeout | null = null;
   private takeoverRequested = false;
-  private agentStreamManager: AgentStreamManager;
-  private agentChatService: AgentChatService;
-  private readonly runtimeRegistry = new RuntimeRegistry();
   /** Streamable HTTP (preview): MCP 2026-07-28, stateless and strict. */
   private readonly modernMcpHandler = createMcpHandler(() => getModernMcpServer(), {
     legacy: 'reject',
@@ -255,12 +246,6 @@ export class Server {
       // MCP clients hold SSE streams open indefinitely; close() must not wait
       // for them, or a shutting-down host keeps running with no listener.
       forceCloseConnections: true,
-    });
-    this.agentStreamManager = new AgentStreamManager();
-    this.agentChatService = new AgentChatService({
-      engines: [new CodexEngine(), new ClaudeEngine(), new DeepSeekEngine()],
-      streamManager: this.agentStreamManager,
-      runtimeRegistry: this.runtimeRegistry,
     });
     this.setupPlugins();
     this.setupMcpAuth();
@@ -297,12 +282,6 @@ export class Server {
     // Extension communication
     this.setupExtensionRoutes();
 
-    // Agent routes (delegated to separate module)
-    registerAgentRoutes(this.fastify, {
-      streamManager: this.agentStreamManager,
-      chatService: this.agentChatService,
-    });
-
     // MCP routes
     this.setupMcpRoutes();
   }
@@ -310,7 +289,7 @@ export class Server {
   private setupServiceGate(): void {
     this.fastify.addHook('onRequest', async (request, reply) => {
       const pathname = (request.raw.url ?? '').split('?')[0];
-      if (!['/mcp', '/mcp-new', '/sse', '/messages', '/ask-extension'].includes(pathname)) return;
+      if (!['/mcp', '/mcp-new', '/sse', '/messages'].includes(pathname)) return;
       if (this.serviceEnabled) return;
       reply.status(HTTP_STATUS.SERVICE_UNAVAILABLE).send({
         error: 'The Chrome MCP Bridge service is currently stopped; start it in the client first.',
@@ -319,29 +298,15 @@ export class Server {
   }
 
   /**
-   * Protect MCP transports when an API key is configured. Local installs with
-   * no key remain backwards compatible.
+   * Single authorization boundary for routes that expose or mutate browser
+   * state. Trusted callers are: a configured API key, an explicitly allowed
+   * Origin, a Chrome-extension Origin, the bundled STDIO proxy origin, or a
+   * one-time artifact token.
    */
   private setupMcpAuth(): void {
     this.fastify.addHook('onRequest', async (request, reply) => {
       const pathname = (request.raw.url ?? '').split('?')[0];
-      const isMcpRoute = ['/mcp', '/mcp-new', '/sse', '/messages'].includes(pathname);
-      const isProtectedLocalRoute =
-        pathname === '/status' ||
-        pathname === '/__chrome_mcp_bridge/error-diagnostics' ||
-        pathname === '/__chrome_mcp_bridge/error-diagnostics/clear' ||
-        pathname === '/ask-extension' ||
-        pathname === '/agent' ||
-        pathname.startsWith('/agent/') ||
-        pathname.startsWith('/artifacts/') ||
-        pathname === '/__chrome_mcp_bridge/start' ||
-        pathname === '/__chrome_mcp_bridge/stop' ||
-        pathname.startsWith('/__chrome_mcp_bridge/requests/') ||
-        pathname.startsWith('/__chrome_mcp_bridge/mcp-new/requests/');
-      const isRuntimeRoute =
-        pathname === '/__chrome_mcp_bridge/runtime' ||
-        pathname.startsWith('/__chrome_mcp_bridge/runtime/');
-      if (!isMcpRoute && !isProtectedLocalRoute && !isRuntimeRoute) return;
+      if (!isPrivilegedPath(pathname)) return;
 
       const expectedKey = process.env[MCP_API_KEY_ENV]?.trim();
       const origin = request.headers.origin;
@@ -349,36 +314,42 @@ export class Server {
         reply.status(HTTP_STATUS.FORBIDDEN).send({ error: ERROR_MESSAGES.ORIGIN_NOT_ALLOWED });
         return;
       }
-      const artifactId =
-        isProtectedLocalRoute && pathname.startsWith('/artifacts/')
-          ? pathname.slice('/artifacts/'.length)
-          : '';
-      const artifactToken =
-        new URL(request.raw.url ?? '/', 'http://127.0.0.1').searchParams.get('token') || '';
-      const artifactTokenAccepted = Boolean(
-        artifactId &&
-        this.nativeHost?.getArtifactStore().consumeDownloadToken(artifactId, artifactToken),
-      );
-      if (artifactTokenAccepted) return;
-
-      if ((isMcpRoute || isProtectedLocalRoute || isRuntimeRoute) && !origin && !expectedKey) {
-        reply.status(HTTP_STATUS.FORBIDDEN).send({ error: ERROR_MESSAGES.ORIGIN_NOT_ALLOWED });
-        return;
-      }
       // Browsers do not send Authorization on CORS preflight requests; the
-      // actual MCP request is authenticated below.
+      // actual request is authenticated below.
       if (request.method === 'OPTIONS') return;
 
       const authorization = request.headers.authorization;
       const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
       const providedKey = bearer ?? request.headers['x-api-key'];
-      if (expectedKey && providedKey === expectedKey) return;
-      if (expectedKey || artifactId) {
+
+      if (pathname.startsWith('/artifacts/')) {
+        const artifactId = pathname.slice('/artifacts/'.length);
+        const artifactToken =
+          new URL(request.raw.url ?? '/', 'http://127.0.0.1').searchParams.get('token') || '';
+        // Artifacts are capability URLs. Consume only when the artifact exists,
+        // so a malformed id does not burn a token. An API key is also accepted.
+        if (
+          artifactId &&
+          this.nativeHost?.getArtifactStore().get(artifactId) &&
+          this.nativeHost.getArtifactStore().consumeDownloadToken(artifactId, artifactToken)
+        ) {
+          return;
+        }
+        if (expectedKey && providedKey === expectedKey) return;
         reply.status(HTTP_STATUS.UNAUTHORIZED).send({ error: ERROR_MESSAGES.UNAUTHORIZED });
         return;
       }
-      // The server is loopback-only; non-artifact local routes remain compatible
-      // when the optional API key is not configured.
+
+      if (expectedKey && providedKey === expectedKey) return;
+      // An allowed Origin is a trusted browser caller (extension popup or an
+      // explicitly configured origin). This also lets the native host take
+      // over a standalone port when it cannot see the service's API key.
+      if (origin) return;
+      if (!expectedKey) {
+        reply.status(HTTP_STATUS.FORBIDDEN).send({ error: ERROR_MESSAGES.ORIGIN_NOT_ALLOWED });
+        return;
+      }
+      reply.status(HTTP_STATUS.UNAUTHORIZED).send({ error: ERROR_MESSAGES.UNAUTHORIZED });
     });
   }
 
@@ -546,130 +517,6 @@ export class Server {
       });
     });
 
-    this.fastify.get('/__chrome_mcp_bridge/runtime', async (_request, reply) => {
-      await this.syncWorkflowTasks();
-      const tasks = this.runtimeRegistry.list();
-      return reply.status(HTTP_STATUS.OK).send({
-        generatedAt: new Date().toISOString(),
-        tasks,
-        activeCount: tasks.filter((task) =>
-          ['running', 'waiting', 'paused', 'cancelling'].includes(task.summary.status),
-        ).length,
-      });
-    });
-
-    const controlRuntimeTask = async (
-      request: FastifyRequest,
-      reply: FastifyReply,
-      action: string,
-    ) => {
-      const { taskId } = request.params as { taskId?: string };
-      const id = taskId?.trim();
-      const task = id ? this.runtimeRegistry.get(id) : null;
-      if (!id || !task) {
-        return reply
-          .status(HTTP_STATUS.NOT_FOUND)
-          .send({ error: 'Task does not exist or has expired.' });
-      }
-      if (['success', 'error', 'cancelled', 'unknown'].includes(task.summary.status)) {
-        return action === 'cancel'
-          ? reply.status(HTTP_STATUS.OK).send({ taskId: id, status: task.summary.status })
-          : reply.status(HTTP_STATUS.CONFLICT).send({
-              error: 'The task has already finished; this action cannot be performed.',
-              taskId: id,
-            });
-      }
-      if (action === 'pause' && !task.summary.pausable) {
-        return reply
-          .status(HTTP_STATUS.CONFLICT)
-          .send({ error: 'The task cannot be paused.', taskId: id });
-      }
-      if (action === 'resume' && task.summary.status !== 'paused') {
-        return reply
-          .status(HTTP_STATUS.CONFLICT)
-          .send({ error: 'The task is not paused.', taskId: id });
-      }
-      try {
-        if (action === 'cancel') {
-          if (task.summary.kind === 'mcp') this.mcpRequests.get(id)?.cancel();
-          else if (task.summary.kind === 'agent') this.agentChatService.cancelExecution(id);
-          else if (this.nativeHost?.isExtensionConnected()) {
-            await this.nativeHost.sendRequestToExtensionAndWait(
-              { runId: id, reason: 'Cancelled from desktop runtime control' },
-              'rr_v3.cancelRun',
-              5_000,
-            );
-          } else {
-            return reply
-              .status(HTTP_STATUS.SERVICE_UNAVAILABLE)
-              .send({ error: 'The Chrome extension is not connected.' });
-          }
-          this.runtimeRegistry.update(id, 'cancelling', 'cancel_requested');
-        } else if (action === 'pause' || action === 'resume') {
-          if (task.summary.kind === 'agent') {
-            const changed =
-              action === 'pause'
-                ? this.agentChatService.pauseExecution(id)
-                : this.agentChatService.resumeExecution(id);
-            if (!changed)
-              return reply
-                .status(HTTP_STATUS.CONFLICT)
-                .send({ error: 'The Agent run has already finished.', taskId: id });
-          } else {
-            if (!this.nativeHost?.isExtensionConnected()) {
-              return reply
-                .status(HTTP_STATUS.SERVICE_UNAVAILABLE)
-                .send({ error: 'The Chrome extension is not connected.' });
-            }
-            await this.nativeHost.sendRequestToExtensionAndWait(
-              { runId: id },
-              action === 'pause' ? 'rr_v3.pauseRun' : 'rr_v3.resumeRun',
-              5_000,
-            );
-            this.runtimeRegistry.update(
-              id,
-              action === 'pause' ? 'paused' : 'running',
-              action === 'pause' ? 'paused' : 'resumed',
-            );
-          }
-        } else if (action === 'focus') {
-          if (typeof task.summary.tabId !== 'number') {
-            return reply
-              .status(HTTP_STATUS.CONFLICT)
-              .send({ error: 'The task has no tab to focus.', taskId: id });
-          }
-          if (!this.nativeHost?.isExtensionConnected()) {
-            return reply
-              .status(HTTP_STATUS.SERVICE_UNAVAILABLE)
-              .send({ error: 'The Chrome extension is not connected.' });
-          }
-          await this.nativeHost.sendRequestToExtensionAndWait(
-            { name: 'chrome_switch_tab', args: { tabId: task.summary.tabId } },
-            NativeMessageType.CALL_TOOL,
-            5_000,
-          );
-        } else {
-          return reply
-            .status(HTTP_STATUS.BAD_REQUEST)
-            .send({ error: 'Unsupported runtime action.' });
-        }
-        return reply.status(HTTP_STATUS.OK).send({
-          taskId: id,
-          status: this.runtimeRegistry.get(id)?.summary.status ?? 'unknown',
-        });
-      } catch (error) {
-        return reply.status(HTTP_STATUS.BAD_REQUEST).send({
-          taskId: id,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    };
-    for (const action of ['cancel', 'pause', 'resume', 'focus']) {
-      this.fastify.post(`/__chrome_mcp_bridge/runtime/:taskId/${action}`, (request, reply) =>
-        controlRuntimeTask(request, reply, action),
-      );
-    }
-
     this.fastify.post(
       '/__chrome_mcp_bridge/error-diagnostics/clear',
       async (
@@ -778,8 +625,6 @@ export class Server {
       });
     };
     this.fastify.post('/__chrome_mcp_bridge/requests/:requestId/cancel', cancelMcpRequest);
-    // Keep the original path as a compatibility alias for older desktop clients.
-    this.fastify.post('/__chrome_mcp_bridge/mcp-new/requests/:requestId/cancel', cancelMcpRequest);
 
     // A user may have opened the EXE before Chrome launches the Native
     // Messaging host. The latter must be able to take over the HTTP port so
@@ -797,73 +642,6 @@ export class Server {
       };
       setTimeout(stop, 100).unref();
     });
-  }
-
-  public observeNativeResponse(method: string, result: unknown): void {
-    if (method !== 'rr.runFlow' || !result || typeof result !== 'object') return;
-    const envelope = result as { data?: { content?: Array<{ type?: string; text?: string }> } };
-    const text = envelope.data?.content?.find((item) => item.type === 'text')?.text;
-    if (!text) return;
-    try {
-      const run = JSON.parse(text) as { id?: unknown; flowId?: unknown; tabId?: unknown };
-      if (typeof run.id !== 'string') return;
-      this.runtimeRegistry.start({
-        taskId: run.id,
-        kind: 'workflow',
-        label: typeof run.flowId === 'string' ? `Workflow · ${run.flowId}` : 'Workflow',
-        tabId: typeof run.tabId === 'number' ? run.tabId : null,
-        cancelable: true,
-        pausable: true,
-      });
-    } catch {
-      // A malformed extension result must not affect the original MCP call.
-    }
-  }
-
-  private async syncWorkflowTasks(): Promise<void> {
-    if (!this.nativeHost?.isExtensionConnected()) return;
-    for (const record of this.runtimeRegistry.active('workflow')) {
-      try {
-        const response = await this.nativeHost.sendRequestToExtensionAndWait(
-          { runId: record.summary.taskId },
-          'rr_v3.getRun',
-          2_000,
-        );
-        const run = response?.data as
-          | {
-              status?: string;
-              currentNodeId?: string;
-              tabId?: number;
-              error?: { message?: string };
-            }
-          | undefined;
-        if (!run) continue;
-        const status =
-          run.status === 'succeeded'
-            ? 'success'
-            : run.status === 'failed'
-              ? 'error'
-              : run.status === 'canceled'
-                ? 'cancelled'
-                : run.status === 'paused'
-                  ? 'paused'
-                  : run.status === 'queued'
-                    ? 'waiting'
-                    : 'running';
-        this.runtimeRegistry.update(record.summary.taskId, status, undefined, {
-          toolName: run.currentNodeId ?? null,
-          tabId: typeof run.tabId === 'number' ? run.tabId : record.summary.tabId,
-          errorMessage: run.error?.message ?? null,
-        });
-        if (status === 'success' || status === 'error' || status === 'cancelled') {
-          this.runtimeRegistry.finish(record.summary.taskId, status, run.error?.message);
-        }
-      } catch {
-        this.runtimeRegistry.update(record.summary.taskId, 'unknown', 'error', {
-          message: 'The Chrome extension cannot report Workflow status right now',
-        });
-      }
-    }
   }
 
   private addSession(
@@ -943,17 +721,6 @@ export class Server {
     request.raw.once('aborted', cancelOnDisconnect);
     reply.raw.once('close', cancelOnDisconnect);
     this.mcpRequests.set(activeRequest.requestId, activeRequest);
-    this.runtimeRegistry.start({
-      taskId: activeRequest.requestId,
-      kind: 'mcp',
-      label: activeRequest.toolName || activeRequest.method,
-      clientName: activeRequest.clientInfo?.name,
-      sessionId: activeRequest.sessionId,
-      toolName: activeRequest.toolName,
-      origin: request.headers.origin,
-      cancelable: true,
-      pausable: false,
-    });
     return activeRequest;
   }
 
@@ -1008,11 +775,6 @@ export class Server {
   ): void {
     this.mcpRequests.delete(activeRequest.requestId);
     const finalStatus = activeRequest.cancelRequestedAt ? 'cancelled' : status;
-    this.runtimeRegistry.finish(
-      activeRequest.requestId,
-      finalStatus === 'success' ? 'success' : finalStatus === 'cancelled' ? 'cancelled' : 'error',
-      error ?? undefined,
-    );
 
     // Successful protocol housekeeping (initialize, tools/list and notifications)
     // is intentionally omitted; the history is for useful tool/error diagnostics.
@@ -1059,45 +821,6 @@ export class Server {
       reply.type(stored.metadata.contentType);
       return reply.send(createReadStream(stored.filePath));
     });
-
-    this.fastify.get(
-      '/ask-extension',
-      async (request: FastifyRequest<{ Body: ExtensionRequestPayload }>, reply: FastifyReply) => {
-        if (!this.nativeHost) {
-          return reply
-            .status(HTTP_STATUS.INTERNAL_SERVER_ERROR)
-            .send({ error: ERROR_MESSAGES.NATIVE_HOST_NOT_AVAILABLE });
-        }
-        if (!this.isRunning) {
-          return reply
-            .status(HTTP_STATUS.INTERNAL_SERVER_ERROR)
-            .send({ error: ERROR_MESSAGES.SERVER_NOT_RUNNING });
-        }
-
-        const requestController = createHttpAbortController(request, reply);
-        try {
-          const extensionResponse = await this.nativeHost.sendRequestToExtensionAndWait(
-            request.query as Record<string, unknown>,
-            'process_data',
-            TIMEOUTS.EXTENSION_REQUEST_TIMEOUT,
-            requestController.signal,
-          );
-          return reply.status(HTTP_STATUS.OK).send({ status: 'success', data: extensionResponse });
-        } catch (error: unknown) {
-          const err = error as Error;
-          if (err.message.includes('timed out')) {
-            return reply
-              .status(HTTP_STATUS.GATEWAY_TIMEOUT)
-              .send({ status: 'error', message: ERROR_MESSAGES.REQUEST_TIMEOUT });
-          } else {
-            return reply.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
-              status: 'error',
-              message: `Failed to get response from extension: ${err.message}`,
-            });
-          }
-        }
-      },
-    );
   }
 
   // ============================================================
@@ -1401,7 +1124,6 @@ export class Server {
     } catch (err) {
       this.isRunning = false;
       this.serviceEnabled = false;
-      closeDb();
       throw err;
     }
   }
@@ -1417,7 +1139,6 @@ export class Server {
     if (!this.isRunning) return;
     await browserProfileManager.stopAll();
     this.serviceEnabled = false;
-    closeDb();
   }
 
   public getInstance(): FastifyInstance {

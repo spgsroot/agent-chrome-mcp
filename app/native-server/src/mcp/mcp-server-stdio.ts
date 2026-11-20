@@ -14,6 +14,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import packageJson from '../../package.json';
+import { STDIO_MCP_ORIGIN } from '../constant/index.js';
 import { checkToolAccess, filterToolsByPermission } from './permission-policy.js';
 import { UnifiedMcpClient, type UnifiedRequestOptions } from './unified-transport.js';
 import { UnifiedStdioServerTransport } from './stdio-transport.js';
@@ -21,8 +22,6 @@ import { UnifiedStdioServerTransport } from './stdio-transport.js';
 let stdioMcpServer: Server | null = null;
 let mcpClient: UnifiedMcpClient | null = null;
 let mcpClientConnectPromise: Promise<UnifiedMcpClient | undefined> | null = null;
-
-const DEFAULT_MCP_SERVER_ORIGIN = 'chrome-extension://mcp-stdio';
 const DEFAULT_AUTOSTART_TIMEOUT_MS = 8_000;
 const DEFAULT_AUTOSTART_POLL_MS = 150;
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
@@ -165,7 +164,7 @@ export const ensureMcpClient = async (options: UnifiedRequestOptions = {}) => {
       const requestHeaders: Record<string, string> = {
         // Keep the backwards-compatible no-key STDIO transport distinguishable
         // from an unauthenticated request with no Origin header.
-        Origin: process.env.MCP_SERVER_ORIGIN?.trim() || DEFAULT_MCP_SERVER_ORIGIN,
+        Origin: process.env.MCP_SERVER_ORIGIN?.trim() || STDIO_MCP_ORIGIN,
         ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
       };
       mcpClient = new UnifiedMcpClient({
@@ -198,7 +197,7 @@ const resetMcpClient = () => {
 };
 
 export const setupTools = (server: Server) => {
-  // Mirror the upstream HTTP catalog so dynamic flow tools are discoverable over STDIO.
+  // Mirror the upstream HTTP catalog over STDIO.
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const client = await ensureMcpClient();
     if (!client) return { tools: filterToolsByPermission(TOOL_SCHEMAS) };

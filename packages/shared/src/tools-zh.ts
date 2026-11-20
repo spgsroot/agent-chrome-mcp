@@ -776,26 +776,6 @@ export const TOOL_SCHEMAS_ZH: Tool[] = [
     },
   },
   {
-    name: 'search_tabs_content',
-    description: '使用语义相似度搜索显式选定的浏览器标签页中的可读内容；选定标签页按需建立索引。',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: '要搜索的文本或主题。' },
-        tabIds: {
-          type: 'array',
-          items: { type: 'number' },
-          description: '要搜索的 1 到 5 个标签页 ID。',
-        },
-        limit: {
-          type: 'number',
-          description: '最多返回的匹配标签页数量（默认 10，上限 20）。',
-        },
-      },
-      required: ['query', 'tabIds'],
-    },
-  },
-  {
     name: TOOL_NAMES.BROWSER.PERFORMANCE_START_TRACE,
     description: '在所选页面上开始性能追踪记录；可选自动刷新页面和/或在短暂时间后自动停止。',
     inputSchema: {
@@ -1363,7 +1343,7 @@ export const TOOL_SCHEMAS_ZH: Tool[] = [
         formData: {
           type: 'object',
           description:
-            'multipart/form-data 描述。提供后覆盖 body，并构建带可选文件附件的 FormData。结构：{ fields?: Record<string,string|number|boolean>, files?: Array<{ name: string, fileUrl?: string, filePath?: string, base64Data?: string, filename?: string, contentType?: string }> }。也支持紧凑数组形式：[ [name, fileSpec, filename?], ... ]，其中 fileSpec 可为 url:、file: 或 base64:。',
+            'multipart/form-data 描述。提供后覆盖 body，并构建带可选文件附件的 FormData。结构：{ fields?: Record<string,string|number|boolean>, files?: Array<{ name: string, fileUrl?: string, base64Data?: string, filename?: string, contentType?: string }> }。也支持紧凑数组形式：[ [name, fileSpec, filename?], ... ]，其中 fileSpec 可为 url: 或 base64:。',
         },
       },
       required: ['url'],

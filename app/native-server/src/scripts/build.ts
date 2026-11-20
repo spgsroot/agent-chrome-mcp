@@ -61,39 +61,8 @@ fs.copyFileSync(
   path.join(sharedPackageDest, 'package.json'),
 );
 
-// Copy package.json and update its contents
-console.log('Preparing package.json...');
-const packageJson = require('../../package.json');
-
-// Create the installation instructions
-const readmeContent = `# ${packageJson.name}
-
-This program is the Native Messaging host side of the Chrome extension.
-
-## Installation
-
-1. Make sure Node.js is installed
-2. Install this program globally:
-   \`\`\`
-   npm install -g ${packageJson.name}
-   \`\`\`
-3. Register the Native Messaging host:
-   \`\`\`
-   # User-level installation (recommended)
-   ${packageJson.name} register
-
-   # If user-level installation fails, try system-level installation
-   ${packageJson.name} register --system
-   # Or use administrator permissions
-   sudo ${packageJson.name} register
-   \`\`\`
-
-## Usage
-
-This application is started automatically by the Chrome extension; there is no need to run it manually.
-`;
-
-fs.writeFileSync(path.join(distDir, 'README.md'), readmeContent);
+// Ship the same installation instructions as the source package.
+fs.copyFileSync(path.join(__dirname, '..', '..', 'README.md'), path.join(distDir, 'README.md'));
 
 console.log('Copying wrapper scripts...');
 const scriptsSourceDir = path.join(__dirname, '.');
@@ -145,7 +114,6 @@ filesToMakeExecutable.forEach((file) => {
 
 // Write node_path.txt immediately after build to ensure Chrome uses the correct Node.js version.
 // This is critical for development mode where dist is deleted on each rebuild.
-// The file points to the same Node.js that compiled the native modules (better-sqlite3 etc.)
 console.log('Writing node_path.txt...');
 const nodePathFile = path.join(distDir, 'node_path.txt');
 fs.writeFileSync(nodePathFile, process.execPath, 'utf8');
