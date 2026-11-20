@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="app/chrome-extension/public/icon/128.png" alt="Chrome MCP Server" width="96" height="96" />
+  <img src="app/chrome-extension/public/icon/128.png" alt="Agent Chrome MCP" width="96" height="96" />
 </p>
 
 <h1 align="center">Agent Chrome MCP</h1>
@@ -22,9 +22,7 @@
 - **Shared package** (`packages/shared/`) — MCP tool schemas and the native
   protocol used by both sides.
 
-There is no assistant runtime, workflow builder, record/replay engine, desktop
-client, or local vector-model package in this distribution. MCP clients bring
-their own models and orchestration.
+Your MCP client runs the model and decides when to call the browser tools.
 
 ## Requirements
 
@@ -50,18 +48,33 @@ Unzip the extension, open `chrome://extensions/`, enable **Developer mode**, cli
 
 ### 2. Register the native bridge
 
-Extract the bridge to a permanent directory, then run:
+Extract the bridge to a permanent directory. Run these commands from the
+directory that contains the downloaded archive on macOS or Linux.
 
 ```bash
 tar -xzf agent-chrome-mcp-bridge-2.8.5.tar.gz
 cd agent-chrome-mcp-bridge
 node dist/cli.js --version
-CHROME_MCP_EXTENSION_ID=YOUR_EXTENSION_ID node dist/cli.js register
+CHROME_MCP_EXTENSION_ID=YOUR_EXTENSION_ID node dist/cli.js register --browser chrome
 ```
 
-Replace `YOUR_EXTENSION_ID` with the ID from `chrome://extensions/`. Registration
-stores the bridge's absolute path, so do not move the directory afterward. Open
-the extension popup and click **Connect**; Chrome starts the native bridge.
+In Windows PowerShell, use the following commands.
+
+```powershell
+tar -xzf agent-chrome-mcp-bridge-2.8.5.tar.gz
+Set-Location agent-chrome-mcp-bridge
+node dist/cli.js --version
+$env:CHROME_MCP_EXTENSION_ID = 'YOUR_EXTENSION_ID'
+node dist/cli.js register --browser chrome
+```
+
+Replace `YOUR_EXTENSION_ID` with the ID from `chrome://extensions/`. Choose
+`--browser chromium` if you loaded the extension in Chromium. Registration
+stores the bridge's absolute path, so keep the extracted directory in place.
+Open the extension popup and click **Connect**. Chrome starts the native bridge
+and the popup shows **Server running** when the MCP endpoint is ready.
+
+<img src="docs/images/connected-popup.png" alt="Extension popup showing a connected native host and the compatible Streamable HTTP endpoint" width="400" />
 
 The native-host name remains `com.chromemcp.nativehost` for protocol compatibility.
 Registration replaces an existing registration under that name. Do not register
@@ -98,8 +111,42 @@ pnpm build
 ```
 
 Load `app/chrome-extension/.output/chrome-mv3`, then register
-`app/native-server/dist/cli.js` with `CHROME_MCP_EXTENSION_ID` as above. Do not
-install the upstream npm package: it does not contain this project's changes.
+`app/native-server/dist/cli.js` with `CHROME_MCP_EXTENSION_ID` as above.
+
+## Try it on a local demo page
+
+Serve the [seedling inventory demo](docs/demo/index.html) from the repository root
+with Python 3.
+
+```bash
+python -m http.server 8765 --bind 127.0.0.1 --directory docs/demo
+```
+
+Connect the extension and use your MCP client's tool panel to make these calls.
+The example was verified against the compatible Streamable HTTP endpoint
+(`/mcp`) with a source build on Windows and a fresh Chromium profile.
+
+1. Call `chrome_navigate` with these arguments. Keep the `tabId` from its success
+   response.
+
+   ```json
+   { "url": "http://127.0.0.1:8765/", "waitForReady": true, "background": false }
+   ```
+
+2. Call `chrome_screenshot` with these arguments, replacing `123` with the
+   returned `tabId`. For this capture mode, the response includes the JPEG in
+   the `base64Data` field of the tool's JSON payload.
+
+   ```json
+   { "tabId": 123, "fullPage": false, "storeBase64": true, "background": true }
+   ```
+
+![Screenshot returned by chrome_screenshot showing a sample seedling inventory](docs/images/garden-tool-capture.jpg)
+
+With the extension connected on the default port, run `pnpm test:chrome-smoke`
+to verify the native host, tool discovery, and a `chrome_get_tab_url` call.
+Set `CHROME_MCP_SMOKE_URL` for a different port and `CHROME_MCP_SMOKE_ORIGIN`
+to `chrome-extension://YOUR_EXTENSION_ID` if the bridge pins the extension origin.
 
 ## Security
 
@@ -129,16 +176,16 @@ returned with the tool result.
 
 Other environment variables:
 
-| Variable | Purpose |
-| --- | --- |
-| `CHROME_MCP_PORT` / `MCP_HTTP_PORT` | HTTP port (default `12306`) |
-| `CHROME_MCP_ALLOWED_ORIGINS` | Exact extra origins allowed on privileged routes |
-| `CHROME_MCP_EXTENSION_ID` | Exact Chrome extension ID |
-| `CHROME_MCP_MAX_CONCURRENT_TOOLS` | Concurrent tool calls (default `8`) |
-| `CHROME_MCP_MAX_QUEUED_TOOLS` | Admission queue length (default `64`) |
-| `CHROME_MCP_ALLOWED_TOOLS` / `CHROME_MCP_APPROVED_TOOLS` / `CHROME_MCP_REQUIRE_APPROVAL` | Tool scope and approval policy |
-| `CHROME_MCP_MAX_HTTP_BODY_BYTES` | HTTP request body cap (default 8 MiB) |
-| `CHROME_MCP_ENABLE_DEBUG_ENDPOINTS` | Enables `/__chrome_mcp_bridge/start` and `/stop` |
+| Variable                                                                                 | Purpose                                          |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `CHROME_MCP_PORT` / `MCP_HTTP_PORT`                                                      | HTTP port (default `12306`)                      |
+| `CHROME_MCP_ALLOWED_ORIGINS`                                                             | Exact extra origins allowed on privileged routes |
+| `CHROME_MCP_EXTENSION_ID`                                                                | Exact Chrome extension ID                        |
+| `CHROME_MCP_MAX_CONCURRENT_TOOLS`                                                        | Concurrent tool calls (default `8`)              |
+| `CHROME_MCP_MAX_QUEUED_TOOLS`                                                            | Admission queue length (default `64`)            |
+| `CHROME_MCP_ALLOWED_TOOLS` / `CHROME_MCP_APPROVED_TOOLS` / `CHROME_MCP_REQUIRE_APPROVAL` | Tool scope and approval policy                   |
+| `CHROME_MCP_MAX_HTTP_BODY_BYTES`                                                         | HTTP request body cap (default 8 MiB)            |
+| `CHROME_MCP_ENABLE_DEBUG_ENDPOINTS`                                                      | Enables `/__chrome_mcp_bridge/start` and `/stop` |
 
 ## Browser tools
 
