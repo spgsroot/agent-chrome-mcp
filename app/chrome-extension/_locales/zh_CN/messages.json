@@ -120,7 +120,7 @@
     "description": "应用按钮"
   },
   "runOnceButton": {
-    "message": "一次运行（CDP）",
+    "message": "一次运行",
     "description": "一次运行按钮"
   },
   "listSectionTitle": {

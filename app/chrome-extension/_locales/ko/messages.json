@@ -84,7 +84,7 @@
     "description": "mode css"
   },
   "modeOnce": {
-    "message": "1회 실행 (CDP)",
+    "message": "1회 실행",
     "description": "mode once"
   },
   "allFramesLabel": {

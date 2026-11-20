@@ -65,7 +65,7 @@
     "message": "CSSのみ"
   },
   "modeOnce": {
-    "message": "1回実行 (CDP)"
+    "message": "1回実行"
   },
   "allFramesLabel": {
     "message": "すべてのフレーム"
