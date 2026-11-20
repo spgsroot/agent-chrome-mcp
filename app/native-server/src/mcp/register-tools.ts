@@ -317,6 +317,42 @@ export function getToolDeadlineAt(meta: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+type ToolProgressNotification = {
+  method: 'notifications/progress';
+  params: { progressToken: string | number; progress: number; total?: number; message: string };
+};
+
+export function createToolProgressReporter(
+  progressToken: string | number | undefined,
+  notify: (notification: ToolProgressNotification) => void | Promise<void>,
+): ToolProgressReporter | undefined {
+  if (progressToken === undefined) return undefined;
+
+  let lastProgress = -1;
+  return (progress) => {
+    const candidate =
+      typeof progress.completed === 'number' && Number.isFinite(progress.completed)
+        ? Math.max(0, Math.floor(progress.completed))
+        : 0;
+    lastProgress = Math.max(lastProgress + 1, candidate);
+    const total =
+      typeof progress.total === 'number' &&
+      Number.isFinite(progress.total) &&
+      progress.total >= lastProgress
+        ? progress.total
+        : undefined;
+    return notify({
+      method: 'notifications/progress',
+      params: {
+        progressToken,
+        progress: lastProgress,
+        ...(total === undefined ? {} : { total }),
+        message: JSON.stringify(progress),
+      },
+    });
+  };
+}
+
 export const setupTools = (server: Server) => {
   // List tools handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -328,41 +364,13 @@ export const setupTools = (server: Server) => {
 
   // Call tool handler
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-    const progressToken = extra._meta?.progressToken;
-    let lastProgress = -1;
-    const reportProgress: ToolProgressReporter | undefined =
-      progressToken === undefined
-        ? undefined
-        : (progress) =>
-            (() => {
-              const candidate =
-                typeof progress.completed === 'number' && Number.isFinite(progress.completed)
-                  ? Math.max(0, Math.floor(progress.completed))
-                  : 0;
-              const nextProgress = Math.max(lastProgress + 1, candidate);
-              lastProgress = nextProgress;
-              const total =
-                typeof progress.total === 'number' &&
-                Number.isFinite(progress.total) &&
-                progress.total >= nextProgress
-                  ? progress.total
-                  : undefined;
-              return extra.sendNotification({
-                method: 'notifications/progress',
-                params: {
-                  progressToken,
-                  progress: nextProgress,
-                  ...(total === undefined ? {} : { total }),
-                  message: JSON.stringify(progress),
-                },
-              });
-            })();
-
     return handleToolCall(
       request.params.name,
       request.params.arguments || {},
       extra.signal,
-      reportProgress,
+      createToolProgressReporter(extra._meta?.progressToken, (notification) =>
+        extra.sendNotification(notification),
+      ),
       getToolDeadlineAt(extra._meta),
     );
   });

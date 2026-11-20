@@ -133,6 +133,7 @@ import { LINKS, STORAGE_KEYS, TIMEOUTS } from '@/common/constants';
 type ServerStatus = {
   isRunning: boolean;
   port?: number;
+  error?: string;
   lastUpdated: number;
 };
 
@@ -190,11 +191,24 @@ const statusDetail = computed(() => {
       : '';
     return `Connected; MCP server listening on 127.0.0.1:${serverStatus.value.port ?? port.value}.${updated}`;
   }
-  return 'Native host connected, but its MCP server is not running. Start it below.';
+  return (
+    serverStatus.value.error ??
+    'Native host connected, but its MCP server is not running. Start it below.'
+  );
 });
 
-const endpointPort = computed(() => serverStatus.value.port ?? port.value);
-const endpoint = computed(() => `http://127.0.0.1:${endpointPort.value}/mcp-new`);
+const endpointPort = computed(() =>
+  serverStatus.value.isRunning ? (serverStatus.value.port ?? port.value) : port.value,
+);
+const transportPaths: Record<TransportId, string> = {
+  'streamable-http-new': '/mcp-new',
+  'streamable-http': '/mcp',
+  sse: '/sse',
+  stdio: '/mcp-new',
+};
+const endpoint = computed(
+  () => `http://127.0.0.1:${endpointPort.value}${transportPaths[transport.value]}`,
+);
 
 const transportOptions: Array<{ id: TransportId; label: string }> = [
   { id: 'streamable-http-new', label: 'Streamable HTTP (MCP 2026-07-28)' },
@@ -204,22 +218,22 @@ const transportOptions: Array<{ id: TransportId; label: string }> = [
 ];
 
 const configJson = computed(() => {
-  const baseUrl = `http://127.0.0.1:${endpointPort.value}`;
+  const url = endpoint.value;
   const configs: Record<TransportId, unknown> = {
     'streamable-http-new': {
       mcpServers: {
-        'streamable-mcp-server-new': { type: 'streamable-http', url: `${baseUrl}/mcp-new` },
+        'streamable-mcp-server-new': { type: 'streamable-http', url },
       },
     },
     'streamable-http': {
-      mcpServers: { 'streamable-mcp-server': { type: 'streamable-http', url: `${baseUrl}/mcp` } },
+      mcpServers: { 'streamable-mcp-server': { type: 'streamable-http', url } },
     },
-    sse: { mcpServers: { 'sse-mcp-server': { url: `${baseUrl}/sse` } } },
+    sse: { mcpServers: { 'sse-mcp-server': { url } } },
     stdio: {
       mcpServers: {
         'chrome-mcp-stdio': {
           command: 'mcp-chrome-stdio',
-          env: { MCP_SERVER_URL: `${baseUrl}/mcp-new` },
+          env: { MCP_SERVER_URL: url },
         },
       },
     },
@@ -260,20 +274,24 @@ async function refreshStatus() {
 
 async function toggleConnection() {
   if (busy.value) return;
+  const connecting = !connected.value;
   busy.value = true;
   error.value = '';
   try {
-    if (connected.value) {
-      await chrome.runtime.sendMessage({ type: NativeMessageType.DISCONNECT_NATIVE });
-    } else {
+    if (connecting) {
       const response = await chrome.runtime.sendMessage({
         type: NativeMessageType.CONNECT_NATIVE,
         port: port.value,
       });
       if (!response?.success) throw new Error(response?.error || 'Connection failed');
+    } else {
+      const response = await chrome.runtime.sendMessage({
+        type: NativeMessageType.DISCONNECT_NATIVE,
+      });
+      if (!response?.success) throw new Error(response?.error || 'Disconnection failed');
     }
     await refreshStatus();
-    if (!connected.value && !error.value) {
+    if (connecting && !connected.value && !error.value) {
       error.value = 'Native host did not connect. Check that it is installed and running.';
     }
   } catch (caught) {
@@ -319,10 +337,11 @@ async function startElementMarker() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (typeof tab?.id !== 'number') throw new Error('No active tab.');
-    await chrome.runtime.sendMessage({
+    const response = await chrome.runtime.sendMessage({
       type: BACKGROUND_MESSAGE_TYPES.ELEMENT_MARKER_START,
       tabId: tab.id,
     });
+    if (!response?.success) throw new Error(response?.error || 'The active tab did not respond.');
     actionMessage.value = 'Element marker started on this page.';
   } catch (caught) {
     actionMessage.value = `Could not start the element marker: ${

@@ -27,16 +27,21 @@ interface ServerInternals {
 
 const serverInternals = Server as unknown as ServerInternals;
 
-function parseMcpResponse(response: { body?: unknown; text?: string }): JsonRpcResponse {
+function parseMcpMessages(response: { body?: unknown; text?: string }): unknown[] {
   const body = response.body;
   if (body && typeof body === 'object' && 'jsonrpc' in body) {
-    // supertest parsed the JSON body; the MCP shape is checked by the assertions.
-    return body as JsonRpcResponse;
+    return [body];
   }
-  const dataLine = response.text?.split(/\r?\n/).find((line) => line.startsWith('data:'));
-  if (!dataLine) throw new Error('MCP response did not contain a JSON body');
-  // The JSON-RPC payload travels in the SSE data line.
-  return JSON.parse(dataLine.slice('data:'.length).trim()) as JsonRpcResponse;
+  return (response.text ?? '')
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('data:') && line.slice('data:'.length).trim())
+    .map((line) => JSON.parse(line.slice('data:'.length)));
+}
+
+function parseMcpResponse(response: { body?: unknown; text?: string }): JsonRpcResponse {
+  const [message] = parseMcpMessages(response);
+  if (!message) throw new Error('MCP response did not contain a JSON body');
+  return message as JsonRpcResponse;
 }
 
 describe('Server tests', () => {
@@ -236,6 +241,129 @@ describe('Server tests', () => {
       Server.serviceEnabled = false;
     }
   });
+
+  test.each(['/mcp', '/mcp-new'])(
+    '%s preserves tool progress and the final result',
+    async (endpoint) => {
+      const nativeEvents = [
+        { completed: 2.8, total: 5 },
+        { completed: 1, total: 2 },
+      ];
+      const result = { content: [{ type: 'text', text: 'https://example.com' }], isError: false };
+      const connected = jest
+        .spyOn(nativeMessagingHostInstance, 'isExtensionConnected')
+        .mockReturnValue(true);
+      const sendToExtension = jest
+        .spyOn(nativeMessagingHostInstance, 'sendRequestToExtensionAndWait')
+        .mockImplementation(async (_payload, _type, _timeout, _signal, progress) => {
+          for (const event of nativeEvents) await progress?.(event);
+          return { status: 'success', data: result };
+        });
+      const server = supertest(Server.getInstance().server);
+      const post = () =>
+        server
+          .post(endpoint)
+          .set('Origin', EXTENSION_ORIGIN)
+          .set('Accept', 'application/json, text/event-stream');
+      const legacy = endpoint === '/mcp';
+      const modernVersion = '2026-07-28';
+      let sessionId: string | undefined;
+      Server.serviceEnabled = true;
+
+      try {
+        if (legacy) {
+          const initialized = await post()
+            .send({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'initialize',
+              params: {
+                protocolVersion: '2025-03-26',
+                capabilities: {},
+                clientInfo: { name: 'progress-test', version: '1.0.0' },
+              },
+            })
+            .expect(200);
+          sessionId = initialized.headers['mcp-session-id'];
+          await post()
+            .set('Mcp-Session-Id', sessionId!)
+            .send({ jsonrpc: '2.0', method: 'notifications/initialized' })
+            .expect(202);
+        }
+
+        for (const progressToken of [0, undefined]) {
+          const request = legacy
+            ? post().set('Mcp-Session-Id', sessionId!)
+            : post()
+                .set('MCP-Protocol-Version', modernVersion)
+                .set('Mcp-Method', 'tools/call')
+                .set('Mcp-Name', 'chrome_get_tab_url');
+          const response = await request
+            .send({
+              jsonrpc: '2.0',
+              id: 2,
+              method: 'tools/call',
+              params: {
+                name: 'chrome_get_tab_url',
+                arguments: { tabId: 17 },
+                _meta: {
+                  progressToken,
+                  ...(legacy
+                    ? {}
+                    : {
+                        'io.modelcontextprotocol/protocolVersion': modernVersion,
+                        'io.modelcontextprotocol/clientCapabilities': {},
+                        'io.modelcontextprotocol/clientInfo': {
+                          name: 'progress-test',
+                          version: '1.0.0',
+                        },
+                      }),
+                },
+              },
+            })
+            .expect(200);
+          const expectedProgress =
+            progressToken === undefined
+              ? []
+              : [
+                  {
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: {
+                      progressToken,
+                      progress: 2,
+                      total: 5,
+                      message: JSON.stringify(nativeEvents[0]),
+                    },
+                  },
+                  {
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: {
+                      progressToken,
+                      progress: 3,
+                      message: JSON.stringify(nativeEvents[1]),
+                    },
+                  },
+                ];
+          expect(parseMcpMessages(response)).toEqual([
+            ...expectedProgress,
+            { jsonrpc: '2.0', id: 2, result: expect.objectContaining(result) },
+          ]);
+        }
+      } finally {
+        if (sessionId) {
+          await server
+            .delete('/mcp')
+            .set('Origin', EXTENSION_ORIGIN)
+            .set('Mcp-Session-Id', sessionId);
+        }
+        connected.mockRestore();
+        sendToExtension.mockRestore();
+        Server.serviceEnabled = false;
+      }
+    },
+  );
 
   test('STDIO proxies should be marked as STDIO connections', async () => {
     Server.serviceEnabled = true;
@@ -515,11 +643,8 @@ describe('Server tests', () => {
       () => supertest(Server.getInstance().server).get('/status'),
       () => supertest(Server.getInstance().server).post('/__chrome_mcp_bridge/takeover'),
       () =>
-        supertest(Server.getInstance().server).post(
-          '/__chrome_mcp_bridge/requests/missing/cancel',
-        ),
-      () =>
-        supertest(Server.getInstance().server).get('/__chrome_mcp_bridge/error-diagnostics'),
+        supertest(Server.getInstance().server).post('/__chrome_mcp_bridge/requests/missing/cancel'),
+      () => supertest(Server.getInstance().server).get('/__chrome_mcp_bridge/error-diagnostics'),
     ];
     try {
       for (const origin of ['http://127.0.0.1:5173', 'http://localhost:5173']) {

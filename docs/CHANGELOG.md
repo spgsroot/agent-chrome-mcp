@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.8.6]
+
+### Changed
+
+- Updated the Chrome and Windows launcher icons and documented the extension interface.
+- JavaScript userscripts use Chrome's User Scripts API and require the browser's user opt-in.
+- Both HTTP transports use the same progress notification logic.
+
+### Fixed
+
+- The native bridge binds the selected loopback port, reports its actual address, and shows an error when the port is occupied.
+- The popup shows the correct endpoint for each transport and disconnects without a spurious connection error.
+- Legacy SSE completes MCP initialization and tool calls, including after a Streamable HTTP session.
+- Userscript Matches and Excludes compare URL schemes consistently.
+- Action snapshots preserve native labels for nested form controls. Element Marker reports restricted pages correctly.
+
 ## [2.8.5] - 2026-11-20
 
 First independent Agent Chrome MCP release. Download the extension and bundled

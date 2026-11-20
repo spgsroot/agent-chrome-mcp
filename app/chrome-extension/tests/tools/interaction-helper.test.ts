@@ -69,6 +69,20 @@ describe('interaction helpers', () => {
     vi.restoreAllMocks();
   });
 
+  it('uses the nested native label for an input and a select instead of their values', () => {
+    document.body.innerHTML = `
+      <label><span>Product</span><input value="Seedling"></label>
+      <label>Count <select><option value="1">1</option><option value="2">2</option></select></label>
+    `;
+    for (const control of document.querySelectorAll('input, select')) setRect(control);
+    loadInjectedHelper('accessibility-tree-helper.js', '__ACCESSIBILITY_TREE_HELPER_INITIALIZED__');
+    const result = (window as any).__generateActionSnapshot('nested-labels');
+    expect(result.controls).toMatchObject([
+      { name: 'Product', value: 'Seedling', operations: ['type_text'] },
+      { name: 'Count', value: '1', operations: ['select'] },
+    ]);
+  });
+
   it('rejects click requests without a target instead of querying an undefined selector', async () => {
     const handler = loadInjectedHelper('click-helper.js', '__CLICK_HELPER_INITIALIZED__');
 

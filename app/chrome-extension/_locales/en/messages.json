@@ -120,7 +120,7 @@
     "description": "apply button"
   },
   "runOnceButton": {
-    "message": "Run Once (CDP)",
+    "message": "Run Once",
     "description": "run once button"
   },
   "listSectionTitle": {

@@ -46,7 +46,6 @@ let autoConnectLoaded = false;
 let ensurePromise: Promise<boolean> | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
-let manualDisconnect = false;
 let statusReady: Promise<void> = Promise.resolve();
 
 /**
@@ -55,6 +54,7 @@ let statusReady: Promise<void> = Promise.resolve();
 interface ServerStatus {
   isRunning: boolean;
   port?: number;
+  error?: string;
   lastUpdated: number;
 }
 
@@ -605,7 +605,6 @@ async function getPreferredPort(override?: unknown): Promise<number> {
  */
 function scheduleReconnect(reason: string): void {
   if (nativePort) return;
-  if (manualDisconnect) return;
   if (!autoConnectEnabled) return;
   if (reconnectTimer) return;
 
@@ -619,7 +618,7 @@ function scheduleReconnect(reason: string): void {
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     if (nativePort) return;
-    if (manualDisconnect || !autoConnectEnabled) return;
+    if (!autoConnectEnabled) return;
 
     reconnectAttempts += 1;
     void ensureNativeConnected(`reconnect:${reason}`).catch(() => {});
@@ -631,10 +630,10 @@ function scheduleReconnect(reason: string): void {
 /**
  * Mark server as stopped and broadcast the change.
  */
-async function markServerStopped(reason: string): Promise<void> {
+async function markServerStopped(reason: string, error?: string): Promise<void> {
   currentServerStatus = {
     isRunning: false,
-    port: currentServerStatus.port,
+    error,
     lastUpdated: Date.now(),
   };
   try {
@@ -666,9 +665,12 @@ async function ensureNativeConnected(trigger: string, portOverride?: unknown): P
 
     // Load auto-connect setting if not yet loaded
     if (!autoConnectLoaded) {
-      autoConnectEnabled = await loadNativeAutoConnectEnabled();
-      autoConnectLoaded = true;
-      syncKeepaliveHold();
+      const enabled = await loadNativeAutoConnectEnabled();
+      // A popup Disconnect may have replaced the persisted value during the read.
+      if (!autoConnectLoaded) {
+        autoConnectEnabled = enabled;
+        autoConnectLoaded = true;
+      }
     }
 
     // If auto-connect is disabled, do nothing
@@ -690,6 +692,7 @@ async function ensureNativeConnected(trigger: string, portOverride?: unknown): P
 
     // Get the port to use
     const port = await getPreferredPort(portOverride);
+    if (!autoConnectEnabled) return false;
     console.debug(`${LOG_PREFIX} Attempting connection on port ${port} (trigger=${trigger})`);
 
     // Attempt connection
@@ -711,6 +714,23 @@ async function ensureNativeConnected(trigger: string, portOverride?: unknown): P
   return ensurePromise;
 }
 
+function clearNativeConnection(): void {
+  for (const controller of activeToolCalls.values()) controller.abort();
+  activeToolCalls.clear();
+  for (const requestId of forwardedFileRequests) {
+    chrome.runtime
+      .sendMessage({
+        type: 'native_file_operation_response',
+        requestId,
+        ok: false,
+        error: 'Native host disconnected before the file operation completed',
+      })
+      .catch(() => undefined);
+  }
+  forwardedFileRequests.clear();
+  closeEventChannel();
+}
+
 /**
  * Connect to the native messaging host
  * @returns Whether the connection was initiated successfully
@@ -724,9 +744,11 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
     setNativeConnectionState('starting');
     negotiatedVersion = undefined;
     nativeCapabilities = undefined;
-    nativePort = chrome.runtime.connectNative(HOST_NAME);
+    const connection = chrome.runtime.connectNative(HOST_NAME);
+    nativePort = connection;
 
-    nativePort.onMessage.addListener(async (message) => {
+    connection.onMessage.addListener(async (message) => {
+      if (nativePort !== connection) return;
       if (typeof message?.version === 'number') {
         let protocolMessage: NativeProtocolMessage;
         try {
@@ -813,6 +835,12 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
               resetReconnectState();
             } else if (protocolMessage.event === 'native.serverStopped') {
               await markServerStopped('native_protocol_event');
+            } else if (protocolMessage.event === 'native.serverStartFailed') {
+              const { message } = (protocolMessage.data ?? {}) as { message?: unknown };
+              await markServerStopped(
+                'native_start_failed',
+                typeof message === 'string' ? message : 'Could not start the MCP server.',
+              );
             } else if (protocolMessage.event === 'native.eventChannelReady') {
               connectEventChannel(protocolMessage.data);
             }
@@ -846,33 +874,14 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
       return;
     });
 
-    nativePort.onDisconnect.addListener(() => {
+    connection.onDisconnect.addListener(() => {
+      if (nativePort !== connection) return;
       console.warn(ERROR_MESSAGES.NATIVE_DISCONNECTED, chrome.runtime.lastError);
-      for (const controller of activeToolCalls.values()) controller.abort();
-      activeToolCalls.clear();
-      for (const requestId of forwardedFileRequests) {
-        chrome.runtime
-          .sendMessage({
-            type: 'native_file_operation_response',
-            requestId,
-            ok: false,
-            error: 'Native host disconnected before the file operation completed',
-          })
-          .catch(() => undefined);
-      }
-      forwardedFileRequests.clear();
-      closeEventChannel();
       nativePort = null;
+      clearNativeConnection();
 
-      // Mark server as stopped since native host disconnection means server is down
       void markServerStopped('native_port_disconnected');
 
-      // Handle reconnection based on disconnect reason
-      if (manualDisconnect) {
-        manualDisconnect = false;
-        setNativeConnectionState('stopped', 'manual_disconnect');
-        return;
-      }
       if (!autoConnectEnabled) {
         setNativeConnectionState('stopped', 'auto_connect_disabled');
         return;
@@ -1027,17 +1036,10 @@ export const initNativeHostListener = () => {
         reconnectAttempts = 0;
         syncKeepaliveHold();
 
-        if (nativePort) {
-          // Only set manualDisconnect if we actually have a port to disconnect.
-          // This prevents the flag from persisting when there's no active connection.
-          manualDisconnect = true;
-          try {
-            nativePort.disconnect();
-          } catch {
-            // Ignore
-          }
-          nativePort = null;
-        }
+        const connection = nativePort;
+        nativePort = null;
+        clearNativeConnection();
+        connection?.disconnect();
         setNativeConnectionState('stopped', 'manual_disconnect');
         await markServerStopped('manual_disconnect');
       })()

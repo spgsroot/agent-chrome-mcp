@@ -247,14 +247,10 @@ export function createNativeHello(
 }
 
 export const NATIVE_PROTOCOL_CAPABILITIES = {
-  methods: [
-    'browser.callTool',
-    'native.start',
-    'native.stop',
-    'file.operation',
-  ],
+  methods: ['browser.callTool', 'native.start', 'native.stop', 'file.operation'],
   events: [
     'native.serverStarted',
+    'native.serverStartFailed',
     'native.serverStopped',
     'native.eventChannelReady',
     'tool.progress',

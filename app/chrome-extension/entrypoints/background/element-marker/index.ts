@@ -210,23 +210,19 @@ async function injectMarkerHelper(tabId: number) {
   const alreadyInjected = await isMarkerInjected(tabId);
 
   if (!alreadyInjected) {
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId, allFrames: true },
-        files: ['inject-scripts/element-marker.js'],
-        world: 'ISOLATED',
-      } as any);
-    } catch (e) {
-      // Script injection may fail on some pages (e.g., chrome:// URLs)
-      console.warn('ElementMarker: script injection failed:', e);
-    }
+    await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      files: ['inject-scripts/element-marker.js'],
+      world: 'ISOLATED',
+    });
   }
 
-  try {
-    await chrome.tabs.sendMessage(tabId, { action: 'element_marker_start' } as any);
-  } catch (e) {
-    console.warn('ElementMarker: start overlay failed:', e);
-  }
+  const response = await chrome.tabs.sendMessage(
+    tabId,
+    { action: 'element_marker_start' },
+    { frameId: 0 },
+  );
+  if (!response?.ok) throw new Error('The page did not confirm that the element marker started.');
 }
 
 export function initElementMarkerListeners() {

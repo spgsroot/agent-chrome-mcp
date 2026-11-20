@@ -128,6 +128,7 @@
 
     <section class="create">
       <h2>{{ m('userscriptsManagerTitle') }}</h2>
+      <p v-if="!userScriptsAvailable" class="hint" role="status">{{ USER_SCRIPT_ACCESS_HELP }}</p>
       <p class="description">{{ m('createRunSectionTitle') }}</p>
       <div class="grid">
         <label>
@@ -257,7 +258,8 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, onMounted } from 'vue';
+import { reactive, ref, onMounted, onUnmounted } from 'vue';
+import { getUserScriptApi, USER_SCRIPT_ACCESS_HELP } from '@/common/userscript-api';
 import { TOOL_NAMES } from '@ethanwilkins/chrome-mcp-shared-2026';
 import { PROXY_COUNTRIES, STORAGE_KEYS } from '@/common/constants';
 
@@ -306,6 +308,8 @@ const form = ref({
 
 const submitting = ref(false);
 const lastResult = ref('');
+const userScriptsAvailable = ref(true);
+let userScriptsAccessTimer: number | undefined;
 
 function formatTime(ts?: number) {
   if (!ts) return '';
@@ -387,10 +391,11 @@ async function reload() {
 }
 
 async function apply(mode: 'auto' | 'once') {
-  if (!form.value.script.trim()) return;
+  if (submitting.value || !form.value.script.trim()) return;
   submitting.value = true;
   lastResult.value = '';
   try {
+    await refreshUserScriptsAccess();
     const args: any = {
       script: form.value.script,
       name: form.value.name || undefined,
@@ -455,10 +460,26 @@ async function exportAll() {
   }
 }
 
+async function refreshUserScriptsAccess() {
+  userScriptsAvailable.value = !!(await getUserScriptApi());
+}
+
 onMounted(async () => {
+  window.addEventListener('focus', refreshUserScriptsAccess);
+  document.addEventListener('visibilitychange', refreshUserScriptsAccess);
+  void refreshUserScriptsAccess();
+  // Chrome's per-extension toggle can change without a permissions event.
+  userScriptsAccessTimer = window.setInterval(() => {
+    if (!document.hidden) void refreshUserScriptsAccess();
+  }, 1000);
   await loadEmergency();
   await loadProxy();
   await reload();
+});
+onUnmounted(() => {
+  window.removeEventListener('focus', refreshUserScriptsAccess);
+  document.removeEventListener('visibilitychange', refreshUserScriptsAccess);
+  window.clearInterval(userScriptsAccessTimer);
 });
 
 function m(key: string, substitutions?: string | string[]) {
