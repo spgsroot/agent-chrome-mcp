@@ -34,12 +34,13 @@ Your MCP client runs the model and decides when to call the browser tools.
 
 Download both assets from the [latest release](https://github.com/spgsroot/agent-chrome-mcp/releases/latest):
 
-- `agent-chrome-mcp-extension-2.8.5.zip`
-- `agent-chrome-mcp-bridge-2.8.5.tar.gz`
+- `agent-chrome-mcp-extension-2.8.6.zip`
+- `agent-chrome-mcp-bridge-2.8.6.tar.gz`
+
+Use the filenames from your downloaded release if its version differs from the examples below.
 
 The bridge archive includes its production dependencies. Node.js 24 or newer is
-required; no npm package installation is needed. This release was tested on macOS
-arm64 with Chrome for Testing. Windows and Linux are not release-tested.
+required; no npm package installation is needed. The browser workflow below was verified on Windows with an isolated Chromium profile.
 
 ### 1. Load the extension
 
@@ -54,7 +55,7 @@ Extract the bridge to a permanent directory. Run these commands from the
 directory that contains the downloaded archive on macOS or Linux.
 
 ```bash
-tar -xzf agent-chrome-mcp-bridge-2.8.5.tar.gz
+tar -xzf agent-chrome-mcp-bridge-2.8.6.tar.gz
 cd agent-chrome-mcp-bridge
 node dist/cli.js --version
 CHROME_MCP_EXTENSION_ID=YOUR_EXTENSION_ID node dist/cli.js register --browser chrome
@@ -63,7 +64,7 @@ CHROME_MCP_EXTENSION_ID=YOUR_EXTENSION_ID node dist/cli.js register --browser ch
 In Windows PowerShell, use the following commands.
 
 ```powershell
-tar -xzf agent-chrome-mcp-bridge-2.8.5.tar.gz
+tar -xzf agent-chrome-mcp-bridge-2.8.6.tar.gz
 Set-Location agent-chrome-mcp-bridge
 node dist/cli.js --version
 $env:CHROME_MCP_EXTENSION_ID = 'YOUR_EXTENSION_ID'
@@ -269,7 +270,7 @@ To produce a bridge directory with locked production dependencies after building
 
 ```bash
 pnpm package:bridge
-tar -czf releases/agent-chrome-mcp-bridge-2.8.5.tar.gz -C releases agent-chrome-mcp-bridge
+tar -czf releases/agent-chrome-mcp-bridge-2.8.6.tar.gz -C releases agent-chrome-mcp-bridge
 ```
 
 The Windows portable bridge executable is built on Windows with
