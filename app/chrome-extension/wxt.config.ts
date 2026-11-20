@@ -30,6 +30,7 @@ export default defineConfig({
       'tabs',
       'activeTab',
       'scripting',
+      'userScripts',
       'contextMenus',
       'downloads',
       'proxy',

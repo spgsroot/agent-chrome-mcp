@@ -830,14 +830,14 @@ export class Server {
   private setupMcpRoutes(): void {
     // SSE endpoint
     this.fastify.get('/sse', async (request, reply) => {
+      const transport = new SSEServerTransport('/messages', reply.raw);
+      const server = getLegacyMcpServer();
+      // The SDK owns the raw response and writes the SSE headers in start().
+      for (const [name, value] of Object.entries(reply.getHeaders())) {
+        if (value !== undefined) reply.raw.setHeader(name, value);
+      }
+      reply.hijack();
       try {
-        reply.raw.writeHead(HTTP_STATUS.OK, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive',
-        });
-
-        const transport = new SSEServerTransport('/messages', reply.raw);
         this.addSession(transport.sessionId, transport, {
           transportType: 'sse',
           endpoint: '/sse',
@@ -849,14 +849,11 @@ export class Server {
           this.transportsMap.delete(transport.sessionId);
         });
 
-        const server = getLegacyMcpServer();
         await server.connect(transport);
-
-        reply.raw.write(':\n\n');
-      } catch (error) {
-        if (!reply.sent) {
-          reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send(ERROR_MESSAGES.INTERNAL_SERVER_ERROR);
-        }
+      } catch {
+        this.transportsMap.delete(transport.sessionId);
+        if (!reply.raw.headersSent) reply.raw.statusCode = HTTP_STATUS.INTERNAL_SERVER_ERROR;
+        reply.raw.end();
       }
     });
 
@@ -886,6 +883,10 @@ export class Server {
         session.activeRequests++;
         const startedAt = Date.now();
         try {
+          for (const [name, value] of Object.entries(reply.getHeaders())) {
+            if (value !== undefined) reply.raw.setHeader(name, value);
+          }
+          reply.hijack();
           await transport.handlePostMessage(req.raw, reply.raw, req.body);
         } catch (error) {
           requestStatus = this.statusForMcpError(activeRequest, error);
@@ -902,6 +903,9 @@ export class Server {
         requestError ??= error instanceof Error ? error.message : String(error);
         if (!reply.sent) {
           reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send(ERROR_MESSAGES.INTERNAL_SERVER_ERROR);
+        } else if (!reply.raw.writableEnded) {
+          if (!reply.raw.headersSent) reply.raw.statusCode = HTTP_STATUS.INTERNAL_SERVER_ERROR;
+          reply.raw.end();
         }
       } finally {
         this.finishMcpRequest(activeRequest, requestStatus, requestError);
@@ -1094,10 +1098,6 @@ export class Server {
     try {
       await this.fastify.listen({ port, host: SERVER_CONFIG.HOST });
 
-      // Set port environment variables after successful listen for Chrome MCP URL resolution
-      process.env.CHROME_MCP_PORT = String(port);
-      process.env.MCP_HTTP_PORT = String(port);
-
       this.isRunning = true;
       this.serviceEnabled = true;
       this.startedAt = Date.now();
@@ -1133,6 +1133,11 @@ export class Server {
       throw new Error('The Chrome MCP Bridge control service has not started yet.');
     }
     this.serviceEnabled = true;
+  }
+
+  public get listeningPort(): number | undefined {
+    const address = this.fastify.server.address();
+    return typeof address === 'object' ? address?.port : undefined;
   }
 
   public async stopService(): Promise<void> {

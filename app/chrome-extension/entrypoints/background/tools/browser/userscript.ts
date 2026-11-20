@@ -1,7 +1,7 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { ExecutionWorld, STORAGE_KEYS } from '@/common/constants';
-import { cdpSessionManager } from '@/utils/cdp-session-manager';
+import { STORAGE_KEYS } from '@/common/constants';
+import { getUserScriptApi, USER_SCRIPT_ACCESS_HELP } from '@/common/userscript-api';
 
 type UserscriptAction =
   | 'create'
@@ -61,10 +61,6 @@ interface UserscriptRecord {
   cspBlocked?: boolean;
 }
 
-// In-memory tracking of active injections per tab
-type ActiveInjection = { kind: 'css' | 'js'; world?: 'ISOLATED' | 'MAIN' };
-const activeInjections: Map<number, Map<string, ActiveInjection>> = new Map();
-
 async function loadAllRecords(): Promise<Record<string, UserscriptRecord>> {
   const res = await chrome.storage.local.get([STORAGE_KEYS.USERSCRIPTS]);
   return (res[STORAGE_KEYS.USERSCRIPTS] as Record<string, UserscriptRecord>) || {};
@@ -96,27 +92,6 @@ async function computeSHA256(input: string): Promise<string> {
   return bytes.map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function probeUnsafeEvalInMain(tabId: number): Promise<boolean> {
-  try {
-    const res = await chrome.scripting.executeScript({
-      target: { tabId, allFrames: false },
-      world: ExecutionWorld.MAIN,
-      func: () => {
-        try {
-          // If page CSP blocks unsafe-eval, this will throw
-          return !!new Function('return 1')();
-        } catch {
-          return false;
-        }
-      },
-    });
-    return Array.isArray(res) && res[0] && (res[0] as any).result === true;
-  } catch {
-    return false;
-  }
-}
-
-// Basic TM header parser (subset)
 function parseUserscriptMeta(source: string): {
   meta: Record<string, string[]>;
   isTM: boolean;
@@ -195,7 +170,7 @@ function matchUrl(patterns: string[], url?: string): boolean {
       const proto = m[1];
       const host = m[2];
       const path = m[3];
-      if (proto !== '*' && proto !== u.protocol.replace(':', '')) continue;
+      if (proto !== '*' && proto !== u.protocol) continue;
       // host wildcard
       const hostRegex = new RegExp(
         '^' +
@@ -240,102 +215,51 @@ async function removeCssFromTab(tabId: number, css: string, allFrames: boolean) 
   }
 }
 
-async function injectJsPersistent(
+async function executeUserScript(
   tabId: number,
+  record: UserscriptRecord,
   code: string,
-  world: 'ISOLATED' | 'MAIN',
-  allFrames: boolean,
-) {
-  if (world === ExecutionWorld.MAIN) {
-    // Ensure bridge is present in ISOLATED
-    await chrome.scripting.executeScript({
-      target: { tabId, allFrames },
-      files: ['inject-scripts/inject-bridge.js'],
-      world: ExecutionWorld.ISOLATED,
-    });
-    // MAIN world code with command handler wrapper
-    const wrapped = `(() => {
-      try {
-        // Optional command API: window.__userscript_onCommand(action, payload)
-        window.addEventListener('chrome-mcp:execute', (ev) => {
-          const { action, payload, requestId } = ev.detail || {};
-          try {
-            let result;
-            const handler = (window as any).__userscript_onCommand;
-            if (typeof handler === 'function') {
-              result = handler(action, payload);
-            }
-            window.dispatchEvent(new CustomEvent('chrome-mcp:response', { detail: { requestId, data: result } }));
-          } catch (err) {
-            window.dispatchEvent(new CustomEvent('chrome-mcp:response', { detail: { requestId, error: String(err && (err as any).message || err) } }));
-          }
-        });
-        (new Function(${JSON.stringify(code)}))();
-      } catch (e) {
-        console.warn('Userscript MAIN injection error:', e);
-      }
-    })();`;
-    await chrome.scripting.executeScript({
-      target: { tabId, allFrames },
-      func: (src) => {
-        try {
-          // Using Function constructor intentionally to evaluate user-provided script
-          new Function(src)();
-        } catch (e) {
-          console.warn('Userscript MAIN wrapper execution error:', e);
-        }
-      },
-      args: [wrapped],
-      world: ExecutionWorld.MAIN,
-    });
-  } else {
-    // ISOLATED world code with message handler
-    await chrome.scripting.executeScript({
-      target: { tabId, allFrames },
-      func: (userCode) => {
-        try {
-          const handlerName = '__userscript_onCommand__';
-          (chrome.runtime.onMessage as any).addListener(
-            (req: any, _sender: any, sendResponse: any) => {
-              if (!req || req.type !== 'userscript:command') return;
-              const { action, payload, scriptId } = req;
-              try {
-                const handler = (globalThis as any)[handlerName];
-                let result;
-                if (typeof handler === 'function') {
-                  result = handler(action, payload, scriptId);
-                }
-                sendResponse({ data: result });
-              } catch (err) {
-                sendResponse({ error: String((err && (err as any).message) || err) });
-              }
-              return true;
-            },
-          );
-          // Using Function constructor intentionally to evaluate user-provided script
-          new Function(userCode)();
-        } catch (e) {
-          console.warn('Userscript ISOLATED injection error:', e);
-        }
-      },
-      args: [code],
-      world: ExecutionWorld.ISOLATED,
-    });
-  }
+  allFrames = record.allFrames,
+): Promise<chrome.userScripts.InjectionResult[]> {
+  const api = getUserScriptApi();
+  if (!api) throw new Error(USER_SCRIPT_ACCESS_HELP);
+
+  // Use document IDs so navigation between the scope check and execution cannot
+  // run a script in a different document. Each selected frame must also match.
+  const frames = await chrome.webNavigation.getAllFrames({ tabId });
+  const top = frames?.find((frame) => frame.frameId === 0);
+  if (!top || !shouldApply(record, top.url)) return [];
+  const documentIds = allFrames
+    ? (frames ?? [])
+        .filter((frame) => shouldApply(record, frame.url))
+        .map((frame) => frame.documentId)
+    : [top.documentId];
+  const world = record.world === 'MAIN' ? 'MAIN' : 'USER_SCRIPT';
+  const results = await api.execute({
+    target: { tabId, documentIds },
+    js: [{ code }],
+    world,
+    ...(world === 'USER_SCRIPT' ? { worldId: record.id } : {}),
+    injectImmediately: true,
+  });
+  const error = results.find((result) => result.error)?.error;
+  if (error) throw new Error(error);
+  return results;
 }
 
-function setActiveInjection(tabId: number, id: string, inj: ActiveInjection) {
-  let m = activeInjections.get(tabId);
-  if (!m) {
-    m = new Map();
-    activeInjections.set(tabId, m);
+async function applyRecord(tabId: number, record: UserscriptRecord): Promise<boolean> {
+  if (record.sourceType === 'CSS') {
+    await insertCssToTab(tabId, record.script, record.allFrames);
+    return true;
   }
-  m.set(id, inj);
-}
-
-function clearActiveInjection(tabId: number, id: string) {
-  const m = activeInjections.get(tabId);
-  if (m) m.delete(id);
+  const results = await executeUserScript(
+    tabId,
+    record,
+    `(async () => {
+${record.script}
+})()`,
+  );
+  return results.length > 0;
 }
 
 async function reinjectForTab(tabId: number, url?: string) {
@@ -349,23 +273,7 @@ async function reinjectForTab(tabId: number, url?: string) {
     if (!rec.enabled || !rec.persist || rec.runAt !== 'document_idle') continue;
     if (!shouldApply(rec, url)) continue;
     try {
-      if (rec.sourceType === 'CSS') {
-        await insertCssToTab(tabId, rec.script, rec.allFrames);
-        setActiveInjection(tabId, rec.id, { kind: 'css' });
-      } else {
-        // Probe CSP when targeting MAIN
-        if (rec.world === 'MAIN') {
-          const ok = await probeUnsafeEvalInMain(tabId);
-          if (!ok) {
-            rec.cspBlocked = true;
-            await injectJsPersistent(tabId, rec.script, 'ISOLATED', rec.allFrames);
-            setActiveInjection(tabId, rec.id, { kind: 'js', world: 'ISOLATED' });
-            continue;
-          }
-        }
-        await injectJsPersistent(tabId, rec.script, rec.world, rec.allFrames);
-        setActiveInjection(tabId, rec.id, { kind: 'js', world: rec.world });
-      }
+      if (rec.sourceType === 'CSS' || getUserScriptApi()) await applyRecord(tabId, rec);
     } catch (e) {
       console.warn('Reinject failed for tab', tabId, rec.id, e);
     }
@@ -393,8 +301,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
     if (!rec.enabled || !rec.persist || rec.runAt !== 'document_start') continue;
     if (!shouldApply(rec, tab.url)) continue;
     try {
-      if (rec.sourceType === 'CSS') await insertCssToTab(details.tabId, rec.script, rec.allFrames);
-      else await injectJsPersistent(details.tabId, rec.script, rec.world, rec.allFrames);
+      if (rec.sourceType === 'CSS' || getUserScriptApi()) await applyRecord(details.tabId, rec);
     } catch {
       // noop
     }
@@ -414,8 +321,7 @@ chrome.webNavigation.onDOMContentLoaded.addListener(async (details) => {
     if (!rec.enabled || !rec.persist || rec.runAt !== 'document_end') continue;
     if (!shouldApply(rec, tab.url)) continue;
     try {
-      if (rec.sourceType === 'CSS') await insertCssToTab(details.tabId, rec.script, rec.allFrames);
-      else await injectJsPersistent(details.tabId, rec.script, rec.world, rec.allFrames);
+      if (rec.sourceType === 'CSS' || getUserScriptApi()) await applyRecord(details.tabId, rec);
     } catch {
       // noop
     }
@@ -464,9 +370,8 @@ class UserscriptTool extends BaseBrowserToolExecutor {
     if (typeof args.script !== 'string' || !args.script.trim()) {
       return createErrorResponse('script is required and cannot be empty');
     }
-    const active = await getActiveTab();
+    let active = await getActiveTab();
     if (!active || !active.id) return createErrorResponse('No active tab found');
-    const currentUrl = active.url;
 
     const emergency = (await chrome.storage.local.get([STORAGE_KEYS.USERSCRIPTS_DISABLED]))[
       STORAGE_KEYS.USERSCRIPTS_DISABLED
@@ -475,7 +380,16 @@ class UserscriptTool extends BaseBrowserToolExecutor {
     const { meta, isTM } = parseUserscriptMeta(args.script);
     const name = args.name || deriveName(meta, undefined);
     const description = args.description || pick(meta['description']);
-    const matches = normalizeMatches(args.matches || meta['match'] || meta['include'], currentUrl);
+    const requestedMatches = args.matches || meta['match'] || meta['include'];
+    if (!requestedMatches?.length && active.url === chrome.runtime.getURL('options.html')) {
+      const tabs = await chrome.tabs.query({ windowId: active.windowId });
+      active = tabs
+        .filter((tab) => tab.id && /^https?:\/\//.test(tab.url ?? ''))
+        .sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))[0];
+      if (!active) return createErrorResponse('Open a web page or enter a Matches pattern.');
+    }
+    const currentUrl = active.url;
+    const matches = normalizeMatches(requestedMatches, currentUrl);
     const excludes = args.excludes || meta['exclude'] || [];
 
     const runAt: UserscriptRecord['runAt'] =
@@ -485,7 +399,7 @@ class UserscriptTool extends BaseBrowserToolExecutor {
       (args.world && args.world !== 'auto' ? args.world : (pick(meta['inject-into']) as any)) ||
       'ISOLATED';
     const allFrames = toBoolean(args.allFrames, true);
-    const persist = toBoolean(args.persist, true);
+    const persist = args.mode !== 'once' && toBoolean(args.persist, true);
     const dnrFallback = toBoolean(args.dnrFallback, true);
     const mode = args.mode || 'auto';
 
@@ -494,6 +408,10 @@ class UserscriptTool extends BaseBrowserToolExecutor {
       : mode === 'css' || isLikelyCSS(args.script)
         ? 'CSS'
         : 'JS';
+
+    if (sourceType !== 'CSS' && !getUserScriptApi()) {
+      return createErrorResponse(USER_SCRIPT_ACCESS_HELP);
+    }
 
     const sha256 = await computeSHA256(args.script).catch(() => undefined);
     const id = `us_${fnv1a((name || '') + '|' + args.script)}`;
@@ -541,80 +459,37 @@ class UserscriptTool extends BaseBrowserToolExecutor {
       };
     }
 
-    // Apply to current tab immediately if matches
+    const startedAt = performance.now();
     let applied = false;
-    const fallbacks: string[] = [];
-    let cspBlocked = false;
-    const t0 = performance.now();
+    let warning: string | undefined;
     try {
-      if (!shouldApply(record, currentUrl)) {
-        return {
-          content: [{ type: 'text', text: JSON.stringify({ id, status: 'queued' }) }],
-          isError: false,
-        };
-      }
-      if (mode === 'once') {
-        // Once: CDP evaluate in page
-        await cdpSessionManager.withSession(active.id!, 'userscript_once', async () => {
-          const expression = `(function(){try{return (function(){${record.script}\n})()}catch(e){return {__error:String(e&&e.message||e)}}})()`;
-          const result: any = await cdpSessionManager.sendCommand(active.id!, 'Runtime.evaluate', {
-            expression,
-            returnByValue: true,
-            awaitPromise: true,
-          });
-          if (result?.result?.value?.__error) {
-            throw new Error(result.result.value.__error);
-          }
-        });
-        applied = true;
-      } else if (sourceType === 'CSS') {
-        await insertCssToTab(active.id!, record.script, record.allFrames);
-        setActiveInjection(active.id!, id, { kind: 'css' });
-        applied = true;
-      } else {
-        // Probe CSP preflight when target MAIN
-        if (record.world === 'MAIN') {
-          const ok = await probeUnsafeEvalInMain(active.id!);
-          if (!ok) {
-            cspBlocked = true;
-            fallbacks.push('MAIN->ISOLATED');
-            await injectJsPersistent(active.id!, record.script, 'ISOLATED', record.allFrames);
-            setActiveInjection(active.id!, id, { kind: 'js', world: 'ISOLATED' });
-            applied = true;
-          }
-        }
-        if (!applied) {
-          await injectJsPersistent(active.id!, record.script, record.world, record.allFrames);
-          setActiveInjection(active.id!, id, { kind: 'js', world: record.world });
-          applied = true;
-        }
-      }
-    } catch (e) {
+      if (shouldApply(record, currentUrl)) applied = await applyRecord(active.id!, record);
+    } catch (error) {
+      warning = error instanceof Error ? error.message : String(error);
       if (record.persist) {
-        all[id].lastError = e instanceof Error ? e.message : String(e);
-        all[id].cspBlocked = cspBlocked;
+        record.lastError = warning;
         await saveAllRecords(all);
       }
     }
 
     const result = {
       id,
-      status: record.persist && all[id]?.lastError ? 'queued' : applied ? 'applied' : 'queued',
+      status: applied ? 'applied' : 'queued',
       strategy: {
         kind:
-          mode === 'once'
-            ? 'once_cdp'
-            : sourceType === 'CSS'
-              ? 'insertCSS'
-              : `persistent_${(record.persist ? all[id]?.world || record.world : record.world).toLowerCase()}`,
-        runAt: record.persist ? all[id]?.runAt || record.runAt : record.runAt,
-        world: record.persist ? all[id]?.world || record.world : record.world,
-        allFrames: record.persist ? (all[id]?.allFrames ?? record.allFrames) : record.allFrames,
-        fallbacksTried: fallbacks,
-        cspBlocked,
+          sourceType === 'CSS'
+            ? 'insertCSS'
+            : mode === 'once'
+              ? 'once_user_script'
+              : `persistent_${record.world.toLowerCase()}`,
+        runAt: record.runAt,
+        world: record.world,
+        allFrames: record.allFrames,
+        fallbacksTried: [],
+        cspBlocked: false,
       },
-      warnings: emergency ? ['USERSCRIPTS_DISABLED is ON, injection skipped'] : [],
-      metrics: { injectMs: Math.round(performance.now() - t0) },
+      warnings: warning ? [warning] : [],
+      metrics: { injectMs: Math.round(performance.now() - startedAt) },
     };
 
     return {
@@ -630,7 +505,12 @@ class UserscriptTool extends BaseBrowserToolExecutor {
     const domain = args && args.domain ? String(args.domain) : '';
     const items = Object.values(all)
       .filter((r) => (status ? (status === 'enabled' ? r.enabled : !r.enabled) : true))
-      .filter((r) => (domain ? matchUrl(r.matches, `https://${domain}/`) : true))
+      .filter(
+        (r) =>
+          !domain ||
+          matchUrl(r.matches, `https://${domain}/`) ||
+          matchUrl(r.matches, `http://${domain}/`),
+      )
       .filter((r) =>
         q
           ? (r.name || '').toLowerCase().includes(q) ||
@@ -713,20 +593,9 @@ class UserscriptTool extends BaseBrowserToolExecutor {
     delete all[id];
     await saveAllRecords(all);
 
-    // Attempt cleanup on active tab
-    const active = await getActiveTab();
-    if (active && active.id) {
-      try {
-        if (rec.sourceType === 'CSS') {
-          await removeCssFromTab(active.id, rec.script, rec.allFrames);
-        } else {
-          // Send cleanup signal via bridge (MAIN) or ignore if isolated
-          chrome.tabs.sendMessage(active.id, { type: 'chrome-mcp:cleanup' }).catch(() => {});
-        }
-        clearActiveInjection(active.id, rec.id);
-      } catch (err) {
-        console.warn('Userscript cleanup failed:', err);
-      }
+    if (rec.sourceType === 'CSS') {
+      const active = await getActiveTab();
+      if (active?.id) await removeCssFromTab(active.id, rec.script, rec.allFrames);
     }
 
     return { content: [{ type: 'text', text: JSON.stringify({ ok: true }) }], isError: false };
@@ -742,31 +611,31 @@ class UserscriptTool extends BaseBrowserToolExecutor {
     const rec = all[id];
     if (!rec) return createErrorResponse('userscript not found');
 
+    const storage = await chrome.storage.local.get([STORAGE_KEYS.USERSCRIPTS_DISABLED]);
+    if (storage[STORAGE_KEYS.USERSCRIPTS_DISABLED] || !rec.enabled || !shouldApply(rec, tab.url)) {
+      return createErrorResponse('The userscript is disabled or does not match the target tab.');
+    }
+
     try {
-      if (rec.world === 'MAIN') {
-        // Use bridge
-        const result = await chrome.tabs.sendMessage(tab.id, {
-          action: 'userscript:command',
-          payload,
-          targetWorld: 'MAIN',
-        });
-        return {
-          content: [{ type: 'text', text: JSON.stringify({ ok: true, result }) }],
-          isError: false,
-        };
-      } else {
-        // ISOLATED handler
-        const result = await chrome.tabs.sendMessage(tab.id, {
-          type: 'userscript:command',
-          action: 'userscript:command',
-          payload,
-          scriptId: id,
-        });
-        return {
-          content: [{ type: 'text', text: JSON.stringify({ ok: true, result }) }],
-          isError: false,
-        };
-      }
+      const [execution] = await executeUserScript(
+        tab.id,
+        rec,
+        `(async () => {
+        const handler = globalThis[
+          ${JSON.stringify(rec.world === 'MAIN' ? '__userscript_onCommand' : '__userscript_onCommand__')}
+        ];
+        if (typeof handler !== 'function') return {};
+        const data = await handler('userscript:command', ${JSON.stringify(payload)}, ${JSON.stringify(id)});
+        return { data };
+      })()`,
+        false,
+      );
+      if (!execution)
+        return createErrorResponse('The userscript does not match the target document.');
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ ok: true, result: execution.result }) }],
+        isError: false,
+      };
     } catch (e) {
       return createErrorResponse(
         `send_command failed: ${e instanceof Error ? e.message : String(e)}`,

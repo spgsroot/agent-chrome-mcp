@@ -162,6 +162,7 @@ function waitForPortAvailable(port: number, timeoutMs = 8_000): Promise<void> {
 export class NativeMessagingHost {
   private readonly standaloneMode = process.env.CHROME_MCP_STANDALONE === '1';
   private associatedServer: Server | null = null;
+  private serverStart: Promise<void> | null = null;
   private pendingRequests: Map<string, PendingRequest> = new Map();
   private connected = false;
   private connectionState: NativeConnectionState = 'stopped';
@@ -213,9 +214,6 @@ export class NativeMessagingHost {
     return this.artifactStore;
   }
 
-  // Start the HTTP server as soon as the native host is connected. The
-  // extension still sends START, but startup must not depend on that single
-  // message arriving after a reconnect.
   public start(): void {
     try {
       // The process can be launched by Chrome before the extension has sent
@@ -225,7 +223,11 @@ export class NativeMessagingHost {
       this.connectionState = 'starting';
       this.lastActivityAt = new Date();
       this.setupMessageHandling();
-      void this.startServer(resolveServerPort(NATIVE_SERVER_PORT));
+      // Chrome sends the saved popup port in native.start. A standalone host
+      // has no native input and starts immediately from its environment.
+      if (this.standaloneMode) {
+        void this.startService().catch((error) => console.error(error));
+      }
     } catch {
       process.exit(1);
     }
@@ -725,61 +727,56 @@ export class NativeMessagingHost {
     }
   }
 
-  /**
-   * Start Fastify server (now accepts Server instance)
-   */
-  private async startServer(port: number, allowPortTakeover = true): Promise<void> {
-    if (!this.associatedServer) {
-      this.sendError('Internal error: server instance not set');
-      return;
-    }
+  private async startServer(port: number): Promise<void> {
+    if (this.serverStart) return this.serverStart;
+    const server = this.associatedServer;
+    if (!server) throw new Error('Internal error: server instance not set');
+
+    this.serverStart = this.startAndReport(server, port);
     try {
-      if (this.associatedServer.isRunning) {
-        await this.associatedServer.startService();
-        this.sendMessage({
-          version: NATIVE_PROTOCOL_VERSION,
-          type: 'event',
-          event: 'native.serverStarted',
-          data: { port },
-        });
-        return;
-      }
+      await this.serverStart;
+    } finally {
+      this.serverStart = null;
+    }
+  }
 
-      await this.associatedServer.start(port, this);
-
+  private async startAndReport(server: Server, port: number): Promise<void> {
+    try {
+      await this.listenOrResume(server, port);
       this.sendMessage({
         version: NATIVE_PROTOCOL_VERSION,
         type: 'event',
         event: 'native.serverStarted',
-        data: { port },
+        data: { port: server.listeningPort },
       });
     } catch (error) {
-      // A manually opened service instance may already own the port. Ask that
-      // instance to stop, then let the Chrome-launched Native Messaging host
-      // take over so HTTP requests and the native connection share one process.
-      if (allowPortTakeover && isAddressInUse(error)) {
-        const takeoverAccepted = await requestPortTakeover(port);
-        if (takeoverAccepted) {
-          await waitForPortAvailable(port);
-          await this.startServer(port, false);
-          return;
-        }
-      }
+      const message = isAddressInUse(error)
+        ? `Port ${port} is already in use. Choose a free port or stop the process using it.`
+        : `Failed to start server: ${error instanceof Error ? error.message : String(error)}`;
+      this.sendMessage({
+        version: NATIVE_PROTOCOL_VERSION,
+        type: 'event',
+        event: 'native.serverStartFailed',
+        data: { message },
+      });
+      throw new NativeProtocolError('BROWSER_ERROR', message);
+    }
+  }
 
-      // If another unrelated/native host owns the port, keep the connection
-      // alive and let the existing server decide whether it can serve requests.
-      if (isAddressInUse(error)) {
-        this.sendMessage({
-          version: NATIVE_PROTOCOL_VERSION,
-          type: 'event',
-          event: 'native.serverStarted',
-          data: { port, reused: true },
-        });
-        return;
+  private async listenOrResume(server: Server, port: number): Promise<void> {
+    if (server.isRunning) {
+      await server.startService();
+      return;
+    }
+    try {
+      await server.start(port, this);
+    } catch (error) {
+      // A Chrome-launched host can replace a standalone bridge on the same port.
+      if (this.standaloneMode || !isAddressInUse(error) || !(await requestPortTakeover(port))) {
+        throw error;
       }
-      this.sendError(
-        `Failed to start server: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      await waitForPortAvailable(port);
+      await server.start(port, this);
     }
   }
 

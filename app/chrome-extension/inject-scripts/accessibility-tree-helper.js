@@ -88,13 +88,21 @@
    */
   function inferLabel(el) {
     const tag = el.tagName.toLowerCase();
+    const aria = el.getAttribute('aria-label');
+    if (aria && aria.trim()) return aria.trim();
+    const labels = Array.from(el.labels || [], (label) => {
+      const copy = label.cloneNode(true);
+      copy
+        .querySelectorAll('input, select, textarea, button, meter, output, progress')
+        .forEach((control) => control.remove());
+      return copy.textContent.trim();
+    }).filter(Boolean);
+    if (labels.length) return labels.join(' ');
     if (tag === 'select') {
       const sel = /** @type {HTMLSelectElement} */ (el);
       const opt = sel.querySelector('option[selected]') || sel.options[sel.selectedIndex];
       if (opt && opt.textContent) return opt.textContent.trim();
     }
-    const aria = el.getAttribute('aria-label');
-    if (aria && aria.trim()) return aria.trim();
     const placeholder = el.getAttribute('placeholder');
     if (placeholder && placeholder.trim()) return placeholder.trim();
     const title = el.getAttribute('title');
@@ -1442,10 +1450,9 @@
         sendResponse({ status: 'pong' });
         return false;
       }
-      
+
       // Element picker: start a temporary overlay to let user pick an element
-      
-      
+
       if (request && request.action === 'waitForPageSettled') {
         waitForPageSettled(
           Number.isFinite(Number(request.timeoutMs)) ? Number(request.timeoutMs) : 700,
@@ -2081,7 +2088,7 @@
           return true;
         }
       }
-      
+
       if (request && request.action === 'resolveRef') {
         const ref = request.ref;
         try {
