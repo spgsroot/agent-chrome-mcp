@@ -75,6 +75,9 @@ Replace `YOUR_EXTENSION_ID` with the ID from `chrome://extensions/`. Choose
 stores the bridge's absolute path, so keep the extracted directory in place.
 Open the extension popup and click **Connect**. Chrome starts the native bridge
 and the popup shows **Server running** when the MCP endpoint is ready.
+To change the listening port, disconnect, enter a free port, and connect again.
+The native host uses `CHROME_MCP_PORT` first, then `MCP_HTTP_PORT`, then the
+saved popup port. The default is `12306`.
 
 <img src="docs/images/connected-popup.png" alt="Extension popup showing a connected native host and the compatible Streamable HTTP endpoint" width="400" />
 
@@ -161,6 +164,48 @@ With the extension connected on the default port, run `pnpm test:chrome-smoke`
 to verify the native host, tool discovery, and a `chrome_get_tab_url` call.
 Set `CHROME_MCP_SMOKE_URL` for a different port and `CHROME_MCP_SMOKE_ORIGIN`
 to `chrome-extension://YOUR_EXTENSION_ID` if the bridge pins the extension origin.
+
+### JavaScript userscripts
+
+JavaScript userscripts use Chrome's `userScripts` permission. In Chrome 138
+or newer, open `chrome://extensions/`, select **Details** for Chrome MCP Server,
+and turn on **Allow User Scripts** before using **Options → Userscripts**.
+Chrome 135–137 uses **Developer mode** for this permission. CSS userscripts
+and the other browser tools work with **Allow User Scripts** off.
+
+Enter page patterns under **Matches** and exceptions under **Excludes**. When
+Matches is empty and the script has no matching metadata, the extension uses
+the last web tab in the Options window to derive the scheme and host. JavaScript
+runs in a separate userscript world by default. Turning off **Allow User Scripts**
+prevents new executions, including after reload.
+
+See [Chrome's User Scripts documentation](https://developer.chrome.com/docs/extensions/reference/api/userScripts).
+
+## Interface
+
+The popup shows the native connection, the selected MCP client configuration,
+browser tool settings, and shortcuts to page tools and diagnostics.
+
+<img src="docs/images/popup-native-connection.png" alt="Native connection status and port controls" width="400" />
+<img src="docs/images/popup-mcp-client.png" alt="Transport selector and copyable MCP configuration" width="400" />
+<img src="docs/images/popup-settings.png" alt="Background operations and page timeout settings" width="400" />
+<img src="docs/images/popup-utilities.png" alt="Utilities shortcuts in the popup" width="400" />
+
+<details>
+<summary>Element picker and error logs</summary>
+
+![Element picker overlay on a local demonstration page](docs/images/element-picker.png)
+![Error logs in the extension popup](docs/images/error-logs.png)
+
+</details>
+
+<details>
+<summary>Proxy and Userscripts settings</summary>
+
+![Residential proxy controls in Options](docs/images/options-proxy.png)
+![Userscript controls and local script records in Options](docs/images/options-userscripts.png)
+
+</details>
 
 ## Security
 
