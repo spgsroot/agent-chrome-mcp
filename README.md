@@ -171,11 +171,18 @@ and turn on **Allow User Scripts** before using **Options → Userscripts**.
 Chrome 135–137 uses **Developer mode** for this permission. CSS userscripts
 and the other browser tools work with **Allow User Scripts** off.
 
-Use **Matches** to choose pages and **Excludes** to skip specific URLs. If both
-Matches and the script's matching metadata are empty, the extension uses the
-scheme and host of the last web tab in the Options window. JavaScript runs in a
-separate userscript world by default. Turn off **Allow User Scripts** to stop
-new executions, including after a reload.
+Use **Matches** to choose pages and **Excludes** to skip specific URLs. With
+**All Frames** on, JavaScript checks each frame's URL. CSS uses the top-level
+page's match and applies to its child frames as well.
+
+If both Matches and the script's matching metadata are empty, the extension
+uses the scheme and host of the last web tab in the Options window and adds a
+one-level subdomain wildcard. It drops a leading `www.` from the wildcard's
+base. For a tab at `https://www.example.com/`, the patterns are
+`https://www.example.com/*` and `https://*.example.com/*`.
+
+JavaScript runs in a separate userscript world by default. Turn off
+**Allow User Scripts** to stop new executions, including after a reload.
 
 See [Chrome's User Scripts documentation](https://developer.chrome.com/docs/extensions/reference/api/userScripts).
 
