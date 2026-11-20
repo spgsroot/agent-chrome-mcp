@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- Pixel-hinted variant for 32 px (2x toolbar). Every edge sits on the pixel grid. -->
+  <defs>
+    <linearGradient id="frame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9A6BFF"/>
+      <stop offset="1" stop-color="#7F56F2"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="3" width="28" height="26" rx="5.5" fill="url(#frame)"/>
+  <rect x="5" y="5" width="15" height="3" rx="1.5" fill="#FFFFFF"/>
+  <rect x="5" y="10" width="22" height="16" rx="2.5" fill="#FFFFFF"/>
+  <path shape-rendering="crispEdges" fill="#5B21B6" d="M12 11h1v1h-1zM12 12h2v1h-2zM12 13h3v1h-3zM12 14h4v1h-4zM12 15h5v1h-5zM12 16h6v1h-6zM12 17h7v1h-7zM12 18h8v1h-8zM12 19h9v1h-9zM12 20h6v1h-6zM12 21h3v1h-3zM16 21h3v1h-3zM12 22h2v1h-2zM17 22h2v1h-2zM12 23h1v1h-1zM17 23h2v1h-2zM18 24h2v1h-2z"/>
+</svg>
