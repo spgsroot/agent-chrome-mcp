@@ -46,6 +46,8 @@ arm64 with Chrome for Testing. Windows and Linux are not release-tested.
 Unzip the extension, open `chrome://extensions/`, enable **Developer mode**, click
 **Load unpacked**, and select the unzipped directory. Copy its extension ID.
 
+<img src="docs/images/installed-extension.png" alt="Installed Chrome MCP Server card in Chromium with the product icon" width="400" />
+
 ### 2. Register the native bridge
 
 Extract the bridge to a permanent directory. Run these commands from the
