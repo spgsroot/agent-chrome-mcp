@@ -665,9 +665,12 @@ async function ensureNativeConnected(trigger: string, portOverride?: unknown): P
 
     // Load auto-connect setting if not yet loaded
     if (!autoConnectLoaded) {
-      autoConnectEnabled = await loadNativeAutoConnectEnabled();
-      autoConnectLoaded = true;
-      syncKeepaliveHold();
+      const enabled = await loadNativeAutoConnectEnabled();
+      // A popup Disconnect may have replaced the persisted value during the read.
+      if (!autoConnectLoaded) {
+        autoConnectEnabled = enabled;
+        autoConnectLoaded = true;
+      }
     }
 
     // If auto-connect is disabled, do nothing
@@ -689,6 +692,7 @@ async function ensureNativeConnected(trigger: string, portOverride?: unknown): P
 
     // Get the port to use
     const port = await getPreferredPort(portOverride);
+    if (!autoConnectEnabled) return false;
     console.debug(`${LOG_PREFIX} Attempting connection on port ${port} (trigger=${trigger})`);
 
     // Attempt connection
