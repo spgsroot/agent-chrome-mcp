@@ -82,7 +82,8 @@ this build alongside an older mcp-chrome installation you still use.
 
 ### 3. Configure your MCP client
 
-STDIO requires no HTTP API key. Replace the path below with the bridge's absolute path:
+STDIO requires no HTTP API key. Replace the path below with the bridge's absolute
+path.
 
 ```json
 {
@@ -94,6 +95,10 @@ STDIO requires no HTTP API key. Replace the path below with the bridge's absolut
   }
 }
 ```
+
+If you changed the port in the extension, set `MCP_SERVER_URL` in the STDIO
+client's environment to `http://127.0.0.1:PORT/mcp-new`, using the port shown in
+the popup.
 
 For HTTP clients, use `http://127.0.0.1:12306/mcp-new` (stateless),
 `http://127.0.0.1:12306/mcp` (session-based), or `/sse` (legacy). Configure
@@ -126,11 +131,18 @@ Connect the extension and use your MCP client's tool panel to make these calls.
 The example was verified against the compatible Streamable HTTP endpoint
 (`/mcp`) with a source build on Windows and a fresh Chromium profile.
 
-1. Call `chrome_navigate` with these arguments. Keep the `tabId` from its success
-   response.
+1. Call `chrome_navigate` with these arguments. Keep the `tabId` from the first
+   entry in the response's `tabs` array.
 
    ```json
-   { "url": "http://127.0.0.1:8765/", "waitForReady": true, "background": false }
+   {
+     "url": "http://127.0.0.1:8765/",
+     "newWindow": true,
+     "width": 1100,
+     "height": 760,
+     "waitForReady": true,
+     "background": false
+   }
    ```
 
 2. Call `chrome_screenshot` with these arguments, replacing `123` with the
