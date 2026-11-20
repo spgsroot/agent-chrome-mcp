@@ -53,6 +53,7 @@ export default defineConfig({
     action: {
       default_popup: 'popup.html',
       default_title: 'Chrome MCP',
+      default_icon: { 16: 'icon/16.png', 32: 'icon/32.png' },
     },
     web_accessible_resources: [
       {
